@@ -20,11 +20,6 @@ MojoTech fork of `ticket` project from original repo: [https://github.com/wedow/
 
 ## Install
 
-**Arch Linux (AUR):**
-```bash
-yay -S mojotech-ticket  # or paru, etc.
-```
-
 **Nix (flakes):**
 ```bash
 # Run directly

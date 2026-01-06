@@ -67,57 +67,57 @@ jobs:
       #     git commit -m "ticket ${VERSION}"
       #     git push
 
-      - name: Update AUR package
-        env:
-          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
-        run: |
-          VERSION=${{ steps.sha.outputs.version }}
-          SHA=${{ steps.sha.outputs.sha256 }}
-          PKGVER=${VERSION#v}
+      # - name: Update AUR package
+      #   env:
+      #     AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+      #   run: |
+      #     VERSION=${{ steps.sha.outputs.version }}
+      #     SHA=${{ steps.sha.outputs.sha256 }}
+      #     PKGVER=${VERSION#v}
 
-          mkdir -p ~/.ssh
-          echo "$AUR_SSH_KEY" > ~/.ssh/aur
-          chmod 600 ~/.ssh/aur
-          echo "Host aur.archlinux.org" >> ~/.ssh/config
-          echo "  IdentityFile ~/.ssh/aur" >> ~/.ssh/config
-          echo "  User aur" >> ~/.ssh/config
-          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+      #     mkdir -p ~/.ssh
+      #     echo "$AUR_SSH_KEY" > ~/.ssh/aur
+      #     chmod 600 ~/.ssh/aur
+      #     echo "Host aur.archlinux.org" >> ~/.ssh/config
+      #     echo "  IdentityFile ~/.ssh/aur" >> ~/.ssh/config
+      #     echo "  User aur" >> ~/.ssh/config
+      #     ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
 
-          git clone ssh://aur@aur.archlinux.org/ticket.git aur
-          cd aur
+      #     git clone ssh://aur@aur.archlinux.org/ticket.git aur
+      #     cd aur
 
-          cat > PKGBUILD << 'EOF'
-          # Maintainer: MojoTech <mojotech@users.noreply.github.com>
-          pkgname=mojotech-ticket
-          pkgver=PKGVER_PLACEHOLDER
-          pkgrel=1
-          pkgdesc="Minimal ticket tracking in bash"
-          arch=('any')
-          url="https://github.com/mojotech/ticket"
-          license=('MIT')
-          depends=('bash' 'coreutils' 'findutils' 'gawk')
-          optdepends=('ripgrep: faster searching' 'jq: query command')
-          source=("$pkgname-$pkgver.tar.gz::https://github.com/mojotech/ticket/archive/refs/tags/v$pkgver.tar.gz")
-          sha256sums=('SHA_PLACEHOLDER')
+      #     cat > PKGBUILD << 'EOF'
+      #     # Maintainer: MojoTech <mojotech@users.noreply.github.com>
+      #     pkgname=mojotech-ticket
+      #     pkgver=PKGVER_PLACEHOLDER
+      #     pkgrel=1
+      #     pkgdesc="Minimal ticket tracking in bash"
+      #     arch=('any')
+      #     url="https://github.com/mojotech/ticket"
+      #     license=('MIT')
+      #     depends=('bash' 'coreutils' 'findutils' 'gawk')
+      #     optdepends=('ripgrep: faster searching' 'jq: query command')
+      #     source=("$pkgname-$pkgver.tar.gz::https://github.com/mojotech/ticket/archive/refs/tags/v$pkgver.tar.gz")
+      #     sha256sums=('SHA_PLACEHOLDER')
 
-          package() {
-              cd "$pkgname-$pkgver"
-              install -Dm755 ticket "$pkgdir/usr/bin/tk"
-              install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
-          }
-          EOF
+      #     package() {
+      #         cd "$pkgname-$pkgver"
+      #         install -Dm755 ticket "$pkgdir/usr/bin/tk"
+      #         install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+      #     }
+      #     EOF
 
-          sed -i "s|PKGVER_PLACEHOLDER|${PKGVER}|" PKGBUILD
-          sed -i "s|SHA_PLACEHOLDER|${SHA}|" PKGBUILD
-          sed -i 's|^          ||' PKGBUILD
+      #     sed -i "s|PKGVER_PLACEHOLDER|${PKGVER}|" PKGBUILD
+      #     sed -i "s|SHA_PLACEHOLDER|${SHA}|" PKGBUILD
+      #     sed -i 's|^          ||' PKGBUILD
 
-          docker run --rm -v "$PWD:/pkg" archlinux:latest bash -c "pacman -Sy --noconfirm pacman-contrib sudo && useradd -u 1001 builder && chown -R builder /pkg && cd /pkg && sudo -u builder makepkg --printsrcinfo > .SRCINFO && chown -R 1001:1001 /pkg"
+      #     docker run --rm -v "$PWD:/pkg" archlinux:latest bash -c "pacman -Sy --noconfirm pacman-contrib sudo && useradd -u 1001 builder && chown -R builder /pkg && cd /pkg && sudo -u builder makepkg --printsrcinfo > .SRCINFO && chown -R 1001:1001 /pkg"
 
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add PKGBUILD .SRCINFO
-          git commit -m "Update to ${VERSION}"
-          git push
+      #     git config user.name "github-actions[bot]"
+      #     git config user.email "github-actions[bot]@users.noreply.github.com"
+      #     git add PKGBUILD .SRCINFO
+      #     git commit -m "Update to ${VERSION}"
+      #     git push
 
       - name: Update Nix derivation
         run: |
