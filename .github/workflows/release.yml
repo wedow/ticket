@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 jobs:
   release:
@@ -42,24 +42,24 @@ jobs:
           echo "sha256=$SHA" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Update Homebrew formula
-        env:
-          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
-        run: |
-          git clone https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/wedow/homebrew-tools.git tap
-          cd tap
+      # - name: Update Homebrew formula
+      #   env:
+      #     TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+      #   run: |
+      #     git clone https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/wedow/homebrew-tools.git tap
+      #     cd tap
 
-          VERSION=${{ steps.sha.outputs.version }}
-          SHA=${{ steps.sha.outputs.sha256 }}
+      #     VERSION=${{ steps.sha.outputs.version }}
+      #     SHA=${{ steps.sha.outputs.sha256 }}
 
-          sed -i "s|url \".*\"|url \"https://github.com/wedow/ticket/archive/refs/tags/${VERSION}.tar.gz\"|" Formula/ticket.rb
-          sed -i "s|sha256 \".*\"|sha256 \"${SHA}\"|" Formula/ticket.rb
+      #     sed -i "s|url \".*\"|url \"https://github.com/wedow/ticket/archive/refs/tags/${VERSION}.tar.gz\"|" Formula/ticket.rb
+      #     sed -i "s|sha256 \".*\"|sha256 \"${SHA}\"|" Formula/ticket.rb
 
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/ticket.rb
-          git commit -m "ticket ${VERSION}"
-          git push
+      #     git config user.name "github-actions[bot]"
+      #     git config user.email "github-actions[bot]@users.noreply.github.com"
+      #     git add Formula/ticket.rb
+      #     git commit -m "ticket ${VERSION}"
+      #     git push
 
       - name: Update AUR package
         env:
@@ -81,17 +81,17 @@ jobs:
           cd aur
 
           cat > PKGBUILD << 'EOF'
-          # Maintainer: wedow <wedow@users.noreply.github.com>
-          pkgname=ticket
+          # Maintainer: MojoTech <mojotech@users.noreply.github.com>
+          pkgname=mojotech-ticket
           pkgver=PKGVER_PLACEHOLDER
           pkgrel=1
           pkgdesc="Minimal ticket tracking in bash"
           arch=('any')
-          url="https://github.com/wedow/ticket"
+          url="https://github.com/mojotech/ticket"
           license=('MIT')
           depends=('bash' 'coreutils' 'findutils' 'gawk')
           optdepends=('ripgrep: faster searching' 'jq: query command')
-          source=("$pkgname-$pkgver.tar.gz::https://github.com/wedow/ticket/archive/refs/tags/v$pkgver.tar.gz")
+          source=("$pkgname-$pkgver.tar.gz::https://github.com/mojotech/ticket/archive/refs/tags/v$pkgver.tar.gz")
           sha256sums=('SHA_PLACEHOLDER')
 
           package() {

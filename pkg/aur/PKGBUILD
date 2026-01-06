@@ -1,14 +1,14 @@
 # Maintainer: wedow <wedow@users.noreply.github.com>
-pkgname=ticket
+pkgname=mojotech-ticket
 pkgver=0.1.0
 pkgrel=1
 pkgdesc="Minimal ticket tracking in bash"
 arch=('any')
-url="https://github.com/wedow/ticket"
+url="https://github.com/mojotech/ticket"
 license=('MIT')
 depends=('bash' 'coreutils' 'findutils' 'gawk')
 optdepends=('ripgrep: faster searching' 'jq: query command')
-source=("$pkgname-$pkgver.tar.gz::https://github.com/wedow/ticket/archive/refs/tags/v$pkgver.tar.gz")
+source=("$pkgname-$pkgver.tar.gz::https://github.com/mojotech/ticket/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('SKIP')
 
 package() {

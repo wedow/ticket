@@ -9,38 +9,36 @@ Tickets are markdown files with YAML frontmatter in `.tickets/`. This allows AI 
 Using ticket IDs as file names also allows IDEs to quickly navigate to the ticket for you. For example, you might run `git log` in your terminal and see something like:
 
 ```
-nw-5c46: add SSE connection management 
+nw-5c46: add SSE connection management
 ```
 
 VS Code allows you to Ctrl+Click or Cmd+Click the ID and jump directly to the file to read the details.
 
-## Install
+### MojoTech Fork
 
-**Homebrew (macOS/Linux):**
-```bash
-brew tap wedow/tools
-brew install ticket
-```
+MojoTech fork of `ticket` project from original repo: [https://github.com/wedow/ticket](https://github.com/wedow/ticket)
+
+## Install
 
 **Arch Linux (AUR):**
 ```bash
-yay -S ticket  # or paru, etc.
+yay -S mojotech-ticket  # or paru, etc.
 ```
 
 **Nix (flakes):**
 ```bash
 # Run directly
-nix run github:wedow/ticket
+nix run github:mojotech/ticket
 
 # Install to profile
-nix profile install github:wedow/ticket
+nix profile install github:mojotech/ticket
 
 # Or add to your flake.nix inputs
 ```
 
 **From source (auto-updates on git pull):**
 ```bash
-git clone https://github.com/wedow/ticket.git
+git clone https://github.com/mojotech/ticket.git
 cd ticket && ln -s "$PWD/ticket" ~/.local/bin/tk
 ```
 

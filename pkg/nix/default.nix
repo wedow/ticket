@@ -15,19 +15,22 @@
   source ? null,
   version ? "0.1.0",
 }:
-
 stdenv.mkDerivation rec {
   pname = "ticket";
   inherit version;
 
-  src = if source != null then source else fetchFromGitHub {
-    owner = "wedow";
-    repo = "ticket";
-    rev = "v${version}";
-    hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-  };
+  src =
+    if source != null
+    then source
+    else
+      fetchFromGitHub {
+        owner = "mojotech";
+        repo = "ticket";
+        rev = "v${version}";
+        hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+      };
 
-  nativeBuildInputs = [ makeWrapper ];
+  nativeBuildInputs = [makeWrapper];
 
   dontBuild = true;
 
@@ -47,8 +50,9 @@ stdenv.mkDerivation rec {
         gnused
         gawk
         gnugrep
-      ] ++ lib.optionals (ripgrep != null) [ ripgrep ]
-        ++ lib.optionals (jq != null) [ jq ])}
+      ]
+      ++ lib.optionals (ripgrep != null) [ripgrep]
+      ++ lib.optionals (jq != null) [jq])}
   '';
 
   meta = with lib; {
@@ -57,9 +61,9 @@ stdenv.mkDerivation rec {
       The git-backed issue tracker for AI agents. Stores tickets as markdown
       files with YAML frontmatter in .tickets/ directory.
     '';
-    homepage = "https://github.com/wedow/ticket";
+    homepage = "https://github.com/mojotech/ticket";
     license = licenses.mit;
-    maintainers = [ ];
+    maintainers = ["github/wedow" "github/mojotech"];
     mainProgram = "tk";
     platforms = platforms.unix;
   };
