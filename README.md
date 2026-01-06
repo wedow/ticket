@@ -20,6 +20,23 @@ MojoTech fork of `ticket` project from original repo: [https://github.com/wedow/
 
 ## Install
 
+**Devenv:**
+
+Add the following input to your `devenv.yaml` file:
+
+    inputs:
+      ticket:
+        url: github:mojotech/ticket
+
+Then add `ticket` to your `devshell.nix`:
+
+    { inputs, pkgs, ... }:
+    {
+      packages = [
+        inputs.ticket.packages.${pkgs.system}.default
+      ];
+    }
+
 **Nix (flakes):**
 ```bash
 # Run directly
