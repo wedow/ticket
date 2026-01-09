@@ -1,6 +1,6 @@
 ---
 id: tc-e42d
-status: open
+status: closed
 deps: [tc-9c9c, tc-8bfc]
 links: []
 created: 2026-01-09T13:13:43Z
@@ -24,3 +24,7 @@ Add this line to python/bdd.sh:
 # ...
 uv run --with behave behave features/ticket_query.feature
 ```
+
+**2026-01-09T13:48:17Z**
+
+Successfully implemented ticket_query feature in Python. Added cmd_query function to cli.py that outputs tickets as JSONL with optional jq filtering. The implementation properly handles array fields (deps, links) as JSON arrays. All BDD tests pass.
