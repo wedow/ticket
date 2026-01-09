@@ -11,3 +11,6 @@ export TICKET_SCRIPT="${PROJECT_ROOT}/zig_ticket.sh"
 
 # Run ticket_dependencies feature tests
 uv run --with behave behave "${PROJECT_ROOT}/features/ticket_dependencies.feature"
+
+# Run id_resolution feature tests
+uv run --with behave behave "${PROJECT_ROOT}/features/id_resolution.feature"

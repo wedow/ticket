@@ -102,11 +102,35 @@ fn handleCreate(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
 }
 
 fn handleStatus(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
-    _ = allocator;
-    _ = args;
-    const stdout = stdout_file;
-    try stdout.writeAll("Error: status command not yet implemented\n");
-    return 1;
+    if (args.len < 2) {
+        try stderr_file.writeAll("Usage: ticket status <id> <status>\n");
+        return 1;
+    }
+
+    const ticket_id = args[0];
+    const new_status = args[1];
+
+    // Resolve ticket ID
+    const file_path = resolveTicketID(allocator, ticket_id) catch |err| {
+        var buf: [512]u8 = undefined;
+        const msg = if (err == error.NotFound)
+            try std.fmt.bufPrint(&buf, "Error: ticket '{s}' not found\n", .{ticket_id})
+        else if (err == error.Ambiguous)
+            try std.fmt.bufPrint(&buf, "Error: ambiguous ID '{s}' matches multiple tickets\n", .{ticket_id})
+        else
+            try std.fmt.bufPrint(&buf, "Error resolving ticket ID\n", .{});
+        try stderr_file.writeAll(msg);
+        return 1;
+    };
+    defer allocator.free(file_path);
+
+    // Update the status field
+    try updateYAMLScalarField(allocator, file_path, "status", new_status);
+
+    var buf: [512]u8 = undefined;
+    const msg = try std.fmt.bufPrint(&buf, "Updated status to: {s}\n", .{new_status});
+    try stdout_file.writeAll(msg);
+    return 0;
 }
 
 fn handleStart(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
@@ -134,11 +158,44 @@ fn handleReopen(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
 }
 
 fn handleShow(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
-    _ = allocator;
-    _ = args;
-    const stdout = stdout_file;
-    try stdout.writeAll("Error: show command not yet implemented\n");
-    return 1;
+    if (args.len < 1) {
+        try stderr_file.writeAll("Usage: ticket show <id>\n");
+        return 1;
+    }
+
+    const ticket_id = args[0];
+
+    // Resolve ticket ID
+    const file_path = resolveTicketID(allocator, ticket_id) catch |err| {
+        var buf: [512]u8 = undefined;
+        const msg = if (err == error.NotFound)
+            try std.fmt.bufPrint(&buf, "Error: ticket '{s}' not found\n", .{ticket_id})
+        else if (err == error.Ambiguous)
+            try std.fmt.bufPrint(&buf, "Error: ambiguous ID '{s}' matches multiple tickets\n", .{ticket_id})
+        else
+            try std.fmt.bufPrint(&buf, "Error resolving ticket ID\n", .{});
+        try stderr_file.writeAll(msg);
+        return 1;
+    };
+    defer allocator.free(file_path);
+
+    // Read and display the ticket file
+    const file = std.fs.cwd().openFile(file_path, .{}) catch {
+        var buf: [512]u8 = undefined;
+        const msg = try std.fmt.bufPrint(&buf, "Error: could not open ticket file\n", .{});
+        try stderr_file.writeAll(msg);
+        return 1;
+    };
+    defer file.close();
+
+    const content = file.readToEndAlloc(allocator, 1024 * 1024) catch {
+        try stderr_file.writeAll("Error: could not read ticket file\n");
+        return 1;
+    };
+    defer allocator.free(content);
+
+    try stdout_file.writeAll(content);
+    return 0;
 }
 
 fn handleList(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
@@ -348,11 +405,113 @@ fn handleUndep(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
 }
 
 fn handleLink(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
-    _ = allocator;
-    _ = args;
-    const stdout = stdout_file;
-    try stdout.writeAll("Error: link command not yet implemented\n");
-    return 1;
+    if (args.len < 2) {
+        try stderr_file.writeAll("Usage: ticket link <id> <id> [id...]\n");
+        return 1;
+    }
+
+    // Resolve all ticket IDs
+    var resolved_paths: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (resolved_paths.items) |path| {
+            allocator.free(path);
+        }
+        resolved_paths.deinit(allocator);
+    }
+
+    var resolved_ids: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (resolved_ids.items) |id| {
+            allocator.free(id);
+        }
+        resolved_ids.deinit(allocator);
+    }
+
+    for (args) |ticket_id| {
+        const file_path = resolveTicketID(allocator, ticket_id) catch |err| {
+            var buf: [512]u8 = undefined;
+            const msg = if (err == error.NotFound)
+                try std.fmt.bufPrint(&buf, "Error: ticket '{s}' not found\n", .{ticket_id})
+            else if (err == error.Ambiguous)
+                try std.fmt.bufPrint(&buf, "Error: ambiguous ID '{s}' matches multiple tickets\n", .{ticket_id})
+            else
+                try std.fmt.bufPrint(&buf, "Error resolving ticket ID\n", .{});
+            try stderr_file.writeAll(msg);
+            return 1;
+        };
+        try resolved_paths.append(allocator, file_path);
+
+        const actual_id = try getTicketIDFromPath(allocator, file_path);
+        try resolved_ids.append(allocator, actual_id);
+    }
+
+    // For each ticket, add all other tickets to its links
+    var links_added: usize = 0;
+    for (resolved_paths.items, 0..) |file_path, i| {
+        // Read current ticket
+        const content = std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024) catch {
+            try stderr_file.writeAll("Error reading ticket\n");
+            return 1;
+        };
+        defer allocator.free(content);
+
+        // Parse links field
+        const existing_links = try parseListField(allocator, content, "links");
+        defer {
+            for (existing_links) |link| {
+                allocator.free(link);
+            }
+            allocator.free(existing_links);
+        }
+
+        // Build new links list (existing + missing ones)
+        var new_links_list: std.ArrayList([]const u8) = .empty;
+        defer {
+            for (new_links_list.items) |link| {
+                allocator.free(link);
+            }
+            new_links_list.deinit(allocator);
+        }
+
+        // Add existing links
+        for (existing_links) |link| {
+            try new_links_list.append(allocator, try allocator.dupe(u8, link));
+        }
+
+        // Add new links (all other tickets in the list)
+        for (resolved_ids.items, 0..) |other_id, j| {
+            if (i == j) continue; // Skip self
+
+            // Check if already linked
+            var already_linked = false;
+            for (existing_links) |link| {
+                if (std.mem.eql(u8, link, other_id)) {
+                    already_linked = true;
+                    break;
+                }
+            }
+
+            if (!already_linked) {
+                try new_links_list.append(allocator, try allocator.dupe(u8, other_id));
+                links_added += 1;
+            }
+        }
+
+        // Update the file if there are new links
+        if (new_links_list.items.len > existing_links.len) {
+            try updateYAMLField(allocator, file_path, "links", new_links_list.items);
+        }
+    }
+
+    if (links_added == 0) {
+        try stdout_file.writeAll("All links already exist\n");
+    } else {
+        var buf: [512]u8 = undefined;
+        const msg = try std.fmt.bufPrint(&buf, "Added {d} link(s) between {d} tickets\n", .{ links_added, resolved_ids.items.len });
+        try stdout_file.writeAll(msg);
+    }
+
+    return 0;
 }
 
 fn handleUnlink(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
@@ -513,6 +672,55 @@ fn parseListField(allocator: std.mem.Allocator, content: []const u8, field: []co
 }
 
 // Helper function to update a YAML field in a ticket file
+fn updateYAMLScalarField(allocator: std.mem.Allocator, file_path: []const u8, field: []const u8, value: []const u8) !void {
+    const content = try std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024);
+    defer allocator.free(content);
+    
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(allocator);
+    
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    var in_frontmatter = false;
+    var frontmatter_count: u8 = 0;
+    var updated = false;
+    
+    while (lines.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, " \t\r");
+        
+        if (std.mem.eql(u8, trimmed, "---")) {
+            try result.appendSlice(allocator, line);
+            try result.append(allocator, '\n');
+            frontmatter_count += 1;
+            if (frontmatter_count == 1) {
+                in_frontmatter = true;
+            } else if (frontmatter_count == 2) {
+                in_frontmatter = false;
+            }
+            continue;
+        }
+        
+        if (in_frontmatter and std.mem.startsWith(u8, trimmed, field) and std.mem.indexOfScalar(u8, trimmed, ':') != null) {
+            // Replace this field
+            try result.appendSlice(allocator, field);
+            try result.appendSlice(allocator, ": ");
+            try result.appendSlice(allocator, value);
+            try result.append(allocator, '\n');
+            updated = true;
+        } else {
+            try result.appendSlice(allocator, line);
+            try result.append(allocator, '\n');
+        }
+    }
+    
+    // If field wasn't found, we'd need to add it (not implemented for simplicity)
+    if (!updated) {
+        return error.FieldNotFound;
+    }
+    
+    // Write back to file
+    try std.fs.cwd().writeFile(.{ .sub_path = file_path, .data = result.items });
+}
+
 fn updateYAMLField(allocator: std.mem.Allocator, file_path: []const u8, field: []const u8, values: []const []const u8) !void {
     const content = try std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024);
     defer allocator.free(content);
