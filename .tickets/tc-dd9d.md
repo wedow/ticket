@@ -1,6 +1,6 @@
 ---
 id: tc-dd9d
-status: open
+status: closed
 deps: [tc-9c9c]
 links: []
 created: 2026-01-09T13:13:17Z
@@ -24,3 +24,7 @@ Add this line to python/bdd.sh:
 # ...
 uv run --with behave behave features/ticket_creation.feature
 ```
+
+**2026-01-09T13:19:53Z**
+
+Successfully implemented Python version of ticket_creation feature. All 17 scenarios pass. Created py_ticket.sh wrapper and python/bdd.sh test runner.
