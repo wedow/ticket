@@ -1438,11 +1438,221 @@ fn handleAddNote(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
 }
 
 fn handleQuery(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
-    _ = allocator;
-    _ = args;
-    const stdout = stdout_file;
-    try stdout.writeAll("Error: query command not yet implemented\n");
-    return 1;
+    const jq_filter = if (args.len > 0) args[0] else null;
+    
+    // Check if tickets directory exists
+    var dir = std.fs.cwd().openDir(tickets_dir, .{ .iterate = true }) catch |err| {
+        if (err == error.FileNotFound) {
+            return 0; // No tickets directory, return success with no output
+        }
+        return err;
+    };
+    defer dir.close();
+    
+    // Collect all JSONL output
+    var jsonl_lines: std.ArrayList([]u8) = .empty;
+    defer {
+        for (jsonl_lines.items) |line| {
+            allocator.free(line);
+        }
+        jsonl_lines.deinit(allocator);
+    }
+    
+    // Iterate through all .md files
+    var iter = dir.iterate();
+    while (try iter.next()) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".md")) continue;
+        
+        const file_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ tickets_dir, entry.name });
+        defer allocator.free(file_path);
+        
+        // Parse ticket frontmatter
+        const json_line = try ticketToJson(allocator, file_path);
+        try jsonl_lines.append(allocator, json_line);
+    }
+    
+    // If jq filter is provided, pipe through jq
+    if (jq_filter) |filter| {
+        // Build input for jq
+        var input: std.ArrayList(u8) = .empty;
+        defer input.deinit(allocator);
+        
+        for (jsonl_lines.items) |line| {
+            try input.appendSlice(allocator, line);
+            try input.append(allocator, '\n');
+        }
+        
+        // Run jq command
+        const jq_args = [_][]const u8{ "jq", "-c", try std.fmt.allocPrint(allocator, "select({s})", .{filter}) };
+        defer allocator.free(jq_args[2]);
+        
+        var child = std.process.Child.init(&jq_args, allocator);
+        child.stdin_behavior = .Pipe;
+        child.stdout_behavior = .Pipe;
+        child.stderr_behavior = .Inherit;
+        
+        try child.spawn();
+        
+        // Write input to jq
+        try child.stdin.?.writeAll(input.items);
+        child.stdin.?.close();
+        child.stdin = null;
+        
+        // Read output from jq
+        const output = try child.stdout.?.readToEndAlloc(allocator, 10 * 1024 * 1024);
+        defer allocator.free(output);
+        
+        const term = try child.wait();
+        
+        if (term != .Exited or term.Exited != 0) {
+            return 1;
+        }
+        
+        try stdout_file.writeAll(output);
+    } else {
+        // Output all JSONL lines
+        for (jsonl_lines.items) |line| {
+            try stdout_file.writeAll(line);
+            try stdout_file.writeAll("\n");
+        }
+    }
+    
+    return 0;
+}
+
+// Convert a ticket file to a JSON line
+fn ticketToJson(allocator: std.mem.Allocator, file_path: []const u8) ![]u8 {
+    const content = try std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024);
+    defer allocator.free(content);
+    
+    // Parse frontmatter
+    var frontmatter = std.StringHashMap([]const u8).init(allocator);
+    defer {
+        var iter = frontmatter.iterator();
+        while (iter.next()) |entry| {
+            allocator.free(entry.key_ptr.*);
+            allocator.free(entry.value_ptr.*);
+        }
+        frontmatter.deinit();
+    }
+    
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    var in_frontmatter = false;
+    var frontmatter_count: u8 = 0;
+    
+    while (lines.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, " \t\r");
+        
+        if (std.mem.eql(u8, trimmed, "---")) {
+            frontmatter_count += 1;
+            if (frontmatter_count == 1) {
+                in_frontmatter = true;
+            } else if (frontmatter_count == 2) {
+                break;
+            }
+            continue;
+        }
+        
+        if (in_frontmatter) {
+            if (std.mem.indexOfScalar(u8, trimmed, ':')) |colon_idx| {
+                const key = std.mem.trim(u8, trimmed[0..colon_idx], " \t");
+                const value = std.mem.trim(u8, trimmed[colon_idx + 1 ..], " \t");
+                try frontmatter.put(try allocator.dupe(u8, key), try allocator.dupe(u8, value));
+            }
+        }
+    }
+    
+    // Build JSON object
+    var json: std.ArrayList(u8) = .empty;
+    errdefer json.deinit(allocator);
+    
+    try json.append(allocator, '{');
+    
+    var first = true;
+    var iter = frontmatter.iterator();
+    while (iter.next()) |entry| {
+        if (!first) {
+            try json.append(allocator, ',');
+        }
+        first = false;
+        
+        const key = entry.key_ptr.*;
+        const value = entry.value_ptr.*;
+        
+        // Write key
+        try json.append(allocator, '"');
+        try jsonEscape(allocator, &json, key);
+        try json.appendSlice(allocator, "\":");
+        
+        // Handle array fields (deps, links)
+        if (std.mem.eql(u8, key, "deps") or std.mem.eql(u8, key, "links")) {
+            try formatJsonArray(allocator, &json, value);
+        } else if (std.mem.eql(u8, key, "priority")) {
+            // priority should be a number
+            const priority = std.fmt.parseInt(i32, value, 10) catch 2;
+            try json.writer(allocator).print("{d}", .{priority});
+        } else {
+            // Regular string value
+            try json.append(allocator, '"');
+            try jsonEscape(allocator, &json, value);
+            try json.append(allocator, '"');
+        }
+    }
+    
+    try json.append(allocator, '}');
+    
+    return json.toOwnedSlice(allocator);
+}
+
+// Format a YAML array as JSON array
+fn formatJsonArray(allocator: std.mem.Allocator, json: *std.ArrayList(u8), value: []const u8) !void {
+    try json.append(allocator, '[');
+    
+    // Handle empty array
+    if (std.mem.eql(u8, value, "[]")) {
+        try json.append(allocator, ']');
+        return;
+    }
+    
+    // Parse array from [a, b, c] format
+    if (std.mem.startsWith(u8, value, "[") and std.mem.endsWith(u8, value, "]")) {
+        const inner = value[1 .. value.len - 1];
+        const inner_trimmed = std.mem.trim(u8, inner, " \t");
+        
+        if (inner_trimmed.len > 0) {
+            var items = std.mem.splitScalar(u8, inner_trimmed, ',');
+            var first = true;
+            while (items.next()) |item| {
+                const item_trimmed = std.mem.trim(u8, item, " \t");
+                if (item_trimmed.len > 0) {
+                    if (!first) {
+                        try json.append(allocator, ',');
+                    }
+                    first = false;
+                    try json.append(allocator, '"');
+                    try jsonEscape(allocator, json, item_trimmed);
+                    try json.append(allocator, '"');
+                }
+            }
+        }
+    }
+    
+    try json.append(allocator, ']');
+}
+
+// Escape a string for JSON
+fn jsonEscape(allocator: std.mem.Allocator, json: *std.ArrayList(u8), s: []const u8) !void {
+    for (s) |c| {
+        switch (c) {
+            '"' => try json.appendSlice(allocator, "\\\""),
+            '\\' => try json.appendSlice(allocator, "\\\\"),
+            '\n' => try json.appendSlice(allocator, "\\n"),
+            '\r' => try json.appendSlice(allocator, "\\r"),
+            '\t' => try json.appendSlice(allocator, "\\t"),
+            else => try json.append(allocator, c),
+        }
+    }
 }
 
 fn handleMigrateBeads(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
