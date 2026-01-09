@@ -1,6 +1,7 @@
 """Command-line interface for the ticket system."""
 
 import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -993,6 +994,59 @@ def cmd_dep_tree(args: list[str]) -> int:
     return 0
 
 
+def cmd_query(args: list[str]) -> int:
+    """Query tickets as JSONL, optionally filtered with jq."""
+    tickets_dir = Path(TICKETS_DIR)
+    if not tickets_dir.exists():
+        return 0
+    
+    jq_filter = args[0] if args else None
+    
+    # Collect all ticket JSON
+    json_lines = []
+    for ticket_file in sorted(tickets_dir.glob("*.md")):
+        ticket_data = parse_ticket(ticket_file)
+        frontmatter = ticket_data["frontmatter"]
+        
+        # Build JSON object from frontmatter
+        json_obj = {}
+        for key, value in frontmatter.items():
+            # Parse array fields (deps, links)
+            if key in ("deps", "links"):
+                json_obj[key] = parse_list_field(value)
+            else:
+                json_obj[key] = value
+        
+        json_lines.append(json.dumps(json_obj))
+    
+    # Apply jq filter if provided
+    if jq_filter:
+        try:
+            # Create input for jq
+            input_data = "\n".join(json_lines)
+            
+            # Run jq with the filter
+            result = subprocess.run(
+                ["jq", "-c", f"select({jq_filter})"],
+                input=input_data,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            print(result.stdout, end="")
+        except subprocess.CalledProcessError:
+            return 1
+        except FileNotFoundError:
+            print("Error: jq is required for filtering", file=sys.stderr)
+            return 1
+    else:
+        # Output all JSON lines
+        for line in json_lines:
+            print(line)
+    
+    return 0
+
+
 def main() -> int:
     """Main entry point for the ticket CLI."""
     args = sys.argv[1:]
@@ -1036,6 +1090,8 @@ def main() -> int:
         return cmd_dep(command_args)
     elif command == "undep":
         return cmd_undep(command_args)
+    elif command == "query":
+        return cmd_query(command_args)
 
     print("Ticket CLI - Python port (work in progress)")
     print(f"Command not yet implemented: {command}")
