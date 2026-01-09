@@ -2199,6 +2199,40 @@ fn loadAllTickets(allocator: std.mem.Allocator) !std.StringHashMap(TicketData) {
     return tickets;
 }
 
+// Calculate subtree depths for all tickets
+fn calculateSubtreeDepths(
+    allocator: std.mem.Allocator,
+    tickets: *std.StringHashMap(TicketData),
+    ticket_id: []const u8,
+    visited: *std.StringHashMap(void),
+    subtree_depths: *std.StringHashMap(usize),
+) !usize {
+    if (subtree_depths.get(ticket_id)) |depth| {
+        return depth;
+    }
+
+    if (visited.contains(ticket_id)) {
+        return 0;
+    }
+
+    try visited.put(try allocator.dupe(u8, ticket_id), {});
+
+    const ticket = tickets.get(ticket_id) orelse return 0;
+
+    var max_depth: usize = 0;
+    for (ticket.deps) |dep_id| {
+        const dep_depth = try calculateSubtreeDepths(allocator, tickets, dep_id, visited, subtree_depths);
+        if (dep_depth > max_depth) {
+            max_depth = dep_depth;
+        }
+    }
+
+    const depth = max_depth + 1;
+    try subtree_depths.put(try allocator.dupe(u8, ticket_id), depth);
+
+    return depth;
+}
+
 // Handle dep tree subcommand
 fn handleDepTree(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
     var full_mode = false;
@@ -2258,17 +2292,40 @@ fn handleDepTree(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
         return 1;
     }
 
-    // Print tree
+    // Calculate subtree depths for all tickets
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const arena_allocator = arena.allocator();
 
+    var subtree_depths = std.StringHashMap(usize).init(arena_allocator);
+    defer subtree_depths.deinit();
+
+    var visited = std.StringHashMap(void).init(arena_allocator);
+    defer visited.deinit();
+
+    _ = try calculateSubtreeDepths(arena_allocator, &tickets, root.?, &visited, &subtree_depths);
+
+    // Print tree
     var printed = std.StringHashMap(void).init(arena_allocator);
     defer printed.deinit();
 
-    try printDepTree(arena_allocator, &tickets, root.?, "", true, root.?, &printed, full_mode);
+    try printDepTree(arena_allocator, &tickets, root.?, "", true, root.?, &printed, full_mode, &subtree_depths);
 
     return 0;
+}
+
+// Struct to hold dependency with its subtree depth for sorting
+const DepWithDepth = struct {
+    id: []const u8,
+    depth: usize,
+};
+
+// Comparison function for sorting deps by subtree depth, then by ID
+fn compareDeps(_: void, a: DepWithDepth, b: DepWithDepth) bool {
+    if (a.depth != b.depth) {
+        return a.depth < b.depth;
+    }
+    return std.mem.order(u8, a.id, b.id) == .lt;
 }
 
 // Recursive function to print dependency tree
@@ -2281,6 +2338,7 @@ fn printDepTree(
     root: []const u8,
     printed: *std.StringHashMap(void),
     full_mode: bool,
+    subtree_depths: *std.StringHashMap(usize),
 ) !void {
     // Skip if already printed in non-full mode
     if (!full_mode and printed.contains(ticket_id)) {
@@ -2304,16 +2362,29 @@ fn printDepTree(
     // Print dependencies
     if (ticket.deps.len > 0) {
         const new_prefix = if (std.mem.eql(u8, ticket_id, root))
-            try allocator.dupe(u8, "")
+            ""
         else if (is_last)
             try std.fmt.allocPrint(allocator, "{s}    ", .{prefix})
         else
             try std.fmt.allocPrint(allocator, "{s}│   ", .{prefix});
-        defer allocator.free(new_prefix);
+        defer if (!std.mem.eql(u8, ticket_id, root)) allocator.free(new_prefix);
+
+        // Create array of deps with their subtree depths
+        var deps_with_depths = try allocator.alloc(DepWithDepth, ticket.deps.len);
+        defer allocator.free(deps_with_depths);
 
         for (ticket.deps, 0..) |dep_id, i| {
-            const is_last_dep = (i == ticket.deps.len - 1);
-            try printDepTree(allocator, tickets, dep_id, new_prefix, is_last_dep, root, printed, full_mode);
+            const depth = subtree_depths.get(dep_id) orelse 0;
+            deps_with_depths[i] = DepWithDepth{ .id = dep_id, .depth = depth };
+        }
+
+        // Sort by subtree depth (shallowest first), then by ID
+        std.mem.sort(DepWithDepth, deps_with_depths, {}, compareDeps);
+
+        // Print sorted dependencies
+        for (deps_with_depths, 0..) |dep_with_depth, i| {
+            const is_last_dep = (i == deps_with_depths.len - 1);
+            try printDepTree(allocator, tickets, dep_with_depth.id, new_prefix, is_last_dep, root, printed, full_mode, subtree_depths);
         }
     }
 }
