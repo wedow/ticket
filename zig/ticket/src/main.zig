@@ -108,6 +108,8 @@ fn handleCreate(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
 }
 
 fn handleStatus(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
+    const valid_statuses = [_][]const u8{ "open", "in_progress", "closed" };
+    
     if (args.len < 2) {
         try stderr_file.writeAll("Usage: ticket status <id> <status>\n");
         return 1;
@@ -115,6 +117,22 @@ fn handleStatus(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
 
     const ticket_id = args[0];
     const new_status = args[1];
+
+    // Validate status
+    var is_valid = false;
+    for (valid_statuses) |valid| {
+        if (std.mem.eql(u8, new_status, valid)) {
+            is_valid = true;
+            break;
+        }
+    }
+    
+    if (!is_valid) {
+        var buf: [512]u8 = undefined;
+        const msg = try std.fmt.bufPrint(&buf, "Error: invalid status '{s}'. Must be one of: open in_progress closed\n", .{new_status});
+        try stderr_file.writeAll(msg);
+        return 1;
+    }
 
     // Resolve ticket ID
     const file_path = resolveTicketID(allocator, ticket_id) catch |err| {
@@ -130,37 +148,64 @@ fn handleStatus(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
     };
     defer allocator.free(file_path);
 
+    // Extract the target ID from the file path
+    const target_id = blk: {
+        const basename = std.fs.path.basename(file_path);
+        if (std.mem.endsWith(u8, basename, ".md")) {
+            break :blk basename[0 .. basename.len - 3];
+        }
+        break :blk basename;
+    };
+
     // Update the status field
     try updateYAMLScalarField(allocator, file_path, "status", new_status);
 
     var buf: [512]u8 = undefined;
-    const msg = try std.fmt.bufPrint(&buf, "Updated status to: {s}\n", .{new_status});
+    const msg = try std.fmt.bufPrint(&buf, "Updated {s} -> {s}\n", .{ target_id, new_status });
     try stdout_file.writeAll(msg);
     return 0;
 }
 
 fn handleStart(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
-    _ = allocator;
-    _ = args;
-    const stdout = stdout_file;
-    try stdout.writeAll("Error: start command not yet implemented\n");
-    return 1;
+    if (args.len < 1) {
+        try stderr_file.writeAll("Usage: ticket start <id>\n");
+        return 1;
+    }
+    
+    // Create a new args array with the status value added
+    var new_args: [2][:0]const u8 = undefined;
+    new_args[0] = args[0];
+    new_args[1] = "in_progress";
+    
+    return try handleStatus(allocator, &new_args);
 }
 
 fn handleClose(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
-    _ = allocator;
-    _ = args;
-    const stdout = stdout_file;
-    try stdout.writeAll("Error: close command not yet implemented\n");
-    return 1;
+    if (args.len < 1) {
+        try stderr_file.writeAll("Usage: ticket close <id>\n");
+        return 1;
+    }
+    
+    // Create a new args array with the status value added
+    var new_args: [2][:0]const u8 = undefined;
+    new_args[0] = args[0];
+    new_args[1] = "closed";
+    
+    return try handleStatus(allocator, &new_args);
 }
 
 fn handleReopen(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
-    _ = allocator;
-    _ = args;
-    const stdout = stdout_file;
-    try stdout.writeAll("Error: reopen command not yet implemented\n");
-    return 1;
+    if (args.len < 1) {
+        try stderr_file.writeAll("Usage: ticket reopen <id>\n");
+        return 1;
+    }
+    
+    // Create a new args array with the status value added
+    var new_args: [2][:0]const u8 = undefined;
+    new_args[0] = args[0];
+    new_args[1] = "open";
+    
+    return try handleStatus(allocator, &new_args);
 }
 
 fn handleShow(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
