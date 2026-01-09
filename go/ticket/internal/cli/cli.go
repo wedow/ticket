@@ -60,6 +60,8 @@ func Run(args []string) int {
 		return cmdUndep(commandArgs)
 	case "link":
 		return cmdLink(commandArgs)
+	case "unlink":
+		return cmdUnlink(commandArgs)
 	default:
 		fmt.Println("Ticket CLI - Go port (work in progress)")
 		fmt.Printf("Command not yet implemented: %s\n", command)
@@ -1641,5 +1643,91 @@ func cmdLink(args []string) int {
 		fmt.Printf("Added %d link(s) between %d tickets\n", totalAdded, len(ticketIDs))
 	}
 
+	return 0
+}
+
+func cmdUnlink(args []string) int {
+	if len(args) != 2 {
+		fmt.Fprintln(os.Stderr, "Usage: ticket unlink <id> <target-id>")
+		return 1
+	}
+
+	ticketID := args[0]
+	targetID := args[1]
+
+	// Resolve both ticket IDs
+	filePath, err := resolveTicketID(ticketID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 1
+	}
+
+	targetPath, err := resolveTicketID(targetID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 1
+	}
+
+	// Get actual IDs from file stems
+	actualID := strings.TrimSuffix(filepath.Base(filePath), ".md")
+	actualTargetID := strings.TrimSuffix(filepath.Base(targetPath), ".md")
+
+	// Get current links from first ticket
+	ticket, err := parseTicketFull(filePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading ticket: %v\n", err)
+		return 1
+	}
+
+	existingLinks := parseListField(ticket.Frontmatter["links"])
+
+	// Check if link exists in first ticket
+	found := false
+	var newLinks []string
+	for _, link := range existingLinks {
+		if link != actualTargetID {
+			newLinks = append(newLinks, link)
+		} else {
+			found = true
+		}
+	}
+
+	if !found {
+		fmt.Println("Link not found")
+		return 1
+	}
+
+	// Update first ticket
+	newLinksStr := "[" + strings.Join(newLinks, ", ") + "]"
+	if err := updateYAMLField(filePath, "links", newLinksStr); err != nil {
+		fmt.Fprintf(os.Stderr, "Error updating ticket: %v\n", err)
+		return 1
+	}
+
+	// Get current links from second ticket
+	targetTicket, err := parseTicketFull(targetPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading ticket: %v\n", err)
+		return 1
+	}
+
+	targetLinks := parseListField(targetTicket.Frontmatter["links"])
+
+	// Remove link from second ticket
+	var newTargetLinks []string
+	for _, link := range targetLinks {
+		if link != actualID {
+			newTargetLinks = append(newTargetLinks, link)
+		}
+	}
+
+	// Update second ticket
+	newTargetLinksStr := "[" + strings.Join(newTargetLinks, ", ") + "]"
+	if err := updateYAMLField(targetPath, "links", newTargetLinksStr); err != nil {
+		fmt.Fprintf(os.Stderr, "Error updating ticket: %v\n", err)
+		return 1
+	}
+
+	fmt.Printf("Removed link: %s <-> %s\n", actualID, actualTargetID)
 	return 0
 }
