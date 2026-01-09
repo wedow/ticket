@@ -1,0 +1,5 @@
+.zig-cache/
+zig-out/
+*.test
+*.out
+.DS_Store
