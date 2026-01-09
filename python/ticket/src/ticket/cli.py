@@ -434,6 +434,103 @@ def cmd_add_note(args: list[str]) -> int:
     return 0
 
 
+def update_yaml_field(file_path: Path, field: str, value: str) -> None:
+    """Update a YAML field in the frontmatter of a ticket file."""
+    content = file_path.read_text()
+    lines = content.split("\n")
+    
+    updated = False
+    in_frontmatter = False
+    result_lines = []
+    
+    for line in lines:
+        if line.strip() == "---":
+            result_lines.append(line)
+            if not in_frontmatter:
+                in_frontmatter = True
+            else:
+                in_frontmatter = False
+            continue
+        
+        if in_frontmatter and line.startswith(f"{field}:"):
+            result_lines.append(f"{field}: {value}")
+            updated = True
+        else:
+            result_lines.append(line)
+    
+    # If field wasn't found, insert it after first ---
+    if not updated:
+        new_lines = []
+        first_marker_found = False
+        for line in result_lines:
+            new_lines.append(line)
+            if not first_marker_found and line.strip() == "---":
+                first_marker_found = True
+                new_lines.append(f"{field}: {value}")
+        result_lines = new_lines
+    
+    file_path.write_text("\n".join(result_lines))
+
+
+def cmd_status(args: list[str]) -> int:
+    """Update the status of a ticket."""
+    VALID_STATUSES = ["open", "in_progress", "closed"]
+    
+    if len(args) < 2:
+        print("Usage: ticket status <id> <status>", file=sys.stderr)
+        print(f"Valid statuses: {' '.join(VALID_STATUSES)}", file=sys.stderr)
+        return 1
+    
+    ticket_id = args[0]
+    status = args[1]
+    
+    # Validate status
+    if status not in VALID_STATUSES:
+        print(f"Error: invalid status '{status}'. Must be one of: {' '.join(VALID_STATUSES)}", file=sys.stderr)
+        return 1
+    
+    # Get ticket file
+    try:
+        file_path = ticket_path(ticket_id)
+    except SystemExit:
+        return 1
+    
+    target_id = file_path.stem
+    
+    # Update status field
+    update_yaml_field(file_path, "status", status)
+    
+    print(f"Updated {target_id} -> {status}")
+    return 0
+
+
+def cmd_start(args: list[str]) -> int:
+    """Set ticket status to in_progress."""
+    if not args:
+        print("Usage: ticket start <id>", file=sys.stderr)
+        return 1
+    
+    return cmd_status([args[0], "in_progress"])
+
+
+def cmd_close(args: list[str]) -> int:
+    """Set ticket status to closed."""
+    if not args:
+        print("Usage: ticket close <id>", file=sys.stderr)
+        return 1
+    
+    return cmd_status([args[0], "closed"])
+
+
+def cmd_reopen(args: list[str]) -> int:
+    """Set ticket status to open."""
+    if not args:
+        print("Usage: ticket reopen <id>", file=sys.stderr)
+        return 1
+    
+    return cmd_status([args[0], "open"])
+
+
 def main() -> int:
     """Main entry point for the ticket CLI."""
     args = sys.argv[1:]
@@ -451,6 +548,14 @@ def main() -> int:
         return cmd_show(command_args)
     elif command == "add-note":
         return cmd_add_note(command_args)
+    elif command == "status":
+        return cmd_status(command_args)
+    elif command == "start":
+        return cmd_start(command_args)
+    elif command == "close":
+        return cmd_close(command_args)
+    elif command == "reopen":
+        return cmd_reopen(command_args)
 
     print("Ticket CLI - Python port (work in progress)")
     print(f"Command not yet implemented: {command}")
