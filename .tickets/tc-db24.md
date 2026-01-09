@@ -1,6 +1,6 @@
 ---
 id: tc-db24
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-01-09T19:42:56Z
@@ -31,3 +31,9 @@ Verification:
 - Run './py_ticket.sh help' to verify wrapper works
 - Check 'git status' to confirm no cache files show as untracked
 
+
+## Notes
+
+**2026-01-09T19:48:26Z**
+
+Updated python/ticket/.gitignore to add .mypy_cache/ and .ruff_cache/ to a new 'Linting and type checking' section. Confirmed that *.pyc is already covered by existing *.py[cod] pattern. Kept .python-version tracked per recommendation. All tests pass and cache directories are now properly ignored.

@@ -17,6 +17,10 @@ env/
 htmlcov/
 .tox/
 
+# Linting and type checking
+.mypy_cache/
+.ruff_cache/
+
 # IDEs
 .vscode/
 .idea/
