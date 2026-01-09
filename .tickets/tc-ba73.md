@@ -1,6 +1,6 @@
 ---
 id: tc-ba73
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-01-09T19:58:06Z
@@ -69,3 +69,21 @@ export TICKET_SCRIPT="${PROJECT_ROOT}/zig_ticket.sh"
 # Features will be added here as they are implemented
 ```
 
+
+## Notes
+
+**2026-01-09T20:29:30Z**
+
+Created 10 individual tickets for each BDD feature to be ported to Zig:
+- tc-ecf1: ticket_creation
+- tc-4e32: ticket_show
+- tc-c4ab: ticket_status
+- tc-e29e: ticket_listing
+- tc-76f0: ticket_notes
+- tc-d23d: ticket_edit
+- tc-00fb: ticket_dependencies
+- tc-cb92: ticket_links
+- tc-fc98: ticket_query
+- tc-044e: id_resolution
+
+All tickets have proper descriptions with behave command examples and are set as dependent on tc-ba73.
