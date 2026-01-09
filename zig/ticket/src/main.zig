@@ -556,35 +556,344 @@ fn handleShow(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
 }
 
 fn handleList(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
-    _ = allocator;
-    _ = args;
-    const stdout = stdout_file;
-    try stdout.writeAll("Error: ls command not yet implemented\n");
-    return 1;
+    // Check if tickets directory exists
+    var dir = std.fs.cwd().openDir(tickets_dir, .{}) catch {
+        return 0;
+    };
+    dir.close();
+
+    // Parse status filter
+    var status_filter: ?[]const u8 = null;
+    for (args) |arg| {
+        if (std.mem.startsWith(u8, arg, "--status=")) {
+            status_filter = arg[9..];
+        }
+    }
+
+    // Load all tickets
+    var tickets = try loadAllTickets(allocator);
+    defer {
+        var iter = tickets.iterator();
+        while (iter.next()) |entry| {
+            allocator.free(entry.key_ptr.*);
+            var ticket = entry.value_ptr.*;
+            ticket.deinit();
+        }
+        tickets.deinit();
+    }
+
+    // Sort ticket IDs
+    var ticket_ids: std.ArrayList([]const u8) = .empty;
+    defer ticket_ids.deinit(allocator);
+    var iter = tickets.keyIterator();
+    while (iter.next()) |ticket_id| {
+        try ticket_ids.append(allocator, ticket_id.*);
+    }
+    std.mem.sort([]const u8, ticket_ids.items, {}, struct {
+        fn lessThan(_: void, a: []const u8, b: []const u8) bool {
+            return std.mem.order(u8, a, b) == .lt;
+        }
+    }.lessThan);
+
+    // Print tickets
+    for (ticket_ids.items) |ticket_id| {
+        const ticket = tickets.get(ticket_id).?;
+
+        // Apply status filter
+        if (status_filter) |filter| {
+            if (!std.mem.eql(u8, ticket.status, filter)) {
+                continue;
+            }
+        }
+
+        // Build dependency display
+        var dep_buf: [512]u8 = undefined;
+        var dep_display: []const u8 = "";
+        if (ticket.deps.len > 0) {
+            var fbs = std.io.fixedBufferStream(&dep_buf);
+            var writer = fbs.writer();
+            try writer.writeAll(" <- [");
+            for (ticket.deps, 0..) |dep_id, i| {
+                if (i > 0) try writer.writeAll(", ");
+                try writer.writeAll(dep_id);
+            }
+            try writer.writeAll("]");
+            dep_display = fbs.getWritten();
+        }
+
+        // Print ticket line
+        var buf: [1024]u8 = undefined;
+        const msg = try std.fmt.bufPrint(&buf, "{s:<8} [{s}] - {s}{s}\n", .{ ticket_id, ticket.status, ticket.title, dep_display });
+        try stdout_file.writeAll(msg);
+    }
+
+    return 0;
 }
 
 fn handleReady(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
-    _ = allocator;
     _ = args;
-    const stdout = stdout_file;
-    try stdout.writeAll("Error: ready command not yet implemented\n");
-    return 1;
+    
+    // Check if tickets directory exists
+    var dir = std.fs.cwd().openDir(tickets_dir, .{}) catch {
+        return 0;
+    };
+    dir.close();
+
+    // Load all tickets
+    var tickets = try loadAllTickets(allocator);
+    defer {
+        var iter = tickets.iterator();
+        while (iter.next()) |entry| {
+            allocator.free(entry.key_ptr.*);
+            var ticket = entry.value_ptr.*;
+            ticket.deinit();
+        }
+        tickets.deinit();
+    }
+
+    // Find ready tickets (open/in_progress with all deps closed)
+    const ReadyTicket = struct {
+        priority: i32,
+        id: []const u8,
+        status: []const u8,
+        title: []const u8,
+    };
+    var ready_tickets: std.ArrayList(ReadyTicket) = .empty;
+    defer ready_tickets.deinit(allocator);
+
+    var iter = tickets.iterator();
+    while (iter.next()) |entry| {
+        const ticket = entry.value_ptr.*;
+        
+        // Only consider open or in_progress tickets
+        if (!std.mem.eql(u8, ticket.status, "open") and !std.mem.eql(u8, ticket.status, "in_progress")) {
+            continue;
+        }
+
+        // Check if all dependencies are closed
+        var ready = true;
+        for (ticket.deps) |dep_id| {
+            if (tickets.get(dep_id)) |dep_ticket| {
+                if (!std.mem.eql(u8, dep_ticket.status, "closed")) {
+                    ready = false;
+                    break;
+                }
+            } else {
+                // If dependency doesn't exist, consider ticket as not ready
+                ready = false;
+                break;
+            }
+        }
+
+        if (ready) {
+            try ready_tickets.append(allocator, .{
+                .priority = ticket.priority,
+                .id = ticket.id,
+                .status = ticket.status,
+                .title = ticket.title,
+            });
+        }
+    }
+
+    // Sort by priority, then by ID
+    std.mem.sort(ReadyTicket, ready_tickets.items, {}, struct {
+        fn lessThan(_: void, a: ReadyTicket, b: ReadyTicket) bool {
+            if (a.priority != b.priority) {
+                return a.priority < b.priority;
+            }
+            return std.mem.order(u8, a.id, b.id) == .lt;
+        }
+    }.lessThan);
+
+    // Print ready tickets
+    for (ready_tickets.items) |ticket| {
+        var buf: [1024]u8 = undefined;
+        const msg = try std.fmt.bufPrint(&buf, "{s:<8} [P{d}][{s}] - {s}\n", .{ ticket.id, ticket.priority, ticket.status, ticket.title });
+        try stdout_file.writeAll(msg);
+    }
+
+    return 0;
 }
 
 fn handleBlocked(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
-    _ = allocator;
     _ = args;
-    const stdout = stdout_file;
-    try stdout.writeAll("Error: blocked command not yet implemented\n");
-    return 1;
+    
+    // Check if tickets directory exists
+    var dir = std.fs.cwd().openDir(tickets_dir, .{}) catch {
+        return 0;
+    };
+    dir.close();
+
+    // Load all tickets
+    var tickets = try loadAllTickets(allocator);
+    defer {
+        var iter = tickets.iterator();
+        while (iter.next()) |entry| {
+            allocator.free(entry.key_ptr.*);
+            var ticket = entry.value_ptr.*;
+            ticket.deinit();
+        }
+        tickets.deinit();
+    }
+
+    // Find blocked tickets (open/in_progress with unclosed deps)
+    const BlockedTicket = struct {
+        priority: i32,
+        id: []const u8,
+        status: []const u8,
+        title: []const u8,
+        blockers: std.ArrayList([]const u8),
+    };
+    var blocked_tickets: std.ArrayList(BlockedTicket) = .empty;
+    defer {
+        for (blocked_tickets.items) |*ticket| {
+            ticket.blockers.deinit(allocator);
+        }
+        blocked_tickets.deinit(allocator);
+    }
+
+    var iter = tickets.iterator();
+    while (iter.next()) |entry| {
+        const ticket = entry.value_ptr.*;
+        
+        // Only consider open or in_progress tickets
+        if (!std.mem.eql(u8, ticket.status, "open") and !std.mem.eql(u8, ticket.status, "in_progress")) {
+            continue;
+        }
+
+        // Skip tickets with no dependencies
+        if (ticket.deps.len == 0) {
+            continue;
+        }
+
+        // Find unclosed blockers
+        var unclosed_blockers: std.ArrayList([]const u8) = .empty;
+        for (ticket.deps) |dep_id| {
+            if (tickets.get(dep_id)) |dep_ticket| {
+                if (!std.mem.eql(u8, dep_ticket.status, "closed")) {
+                    try unclosed_blockers.append(allocator, dep_id);
+                }
+            } else {
+                // If dependency doesn't exist, consider it blocking
+                try unclosed_blockers.append(allocator, dep_id);
+            }
+        }
+
+        if (unclosed_blockers.items.len > 0) {
+            try blocked_tickets.append(allocator, .{
+                .priority = ticket.priority,
+                .id = ticket.id,
+                .status = ticket.status,
+                .title = ticket.title,
+                .blockers = unclosed_blockers,
+            });
+        } else {
+            unclosed_blockers.deinit(allocator);
+        }
+    }
+
+    // Sort by priority, then by ID
+    std.mem.sort(BlockedTicket, blocked_tickets.items, {}, struct {
+        fn lessThan(_: void, a: BlockedTicket, b: BlockedTicket) bool {
+            if (a.priority != b.priority) {
+                return a.priority < b.priority;
+            }
+            return std.mem.order(u8, a.id, b.id) == .lt;
+        }
+    }.lessThan);
+
+    // Print blocked tickets
+    for (blocked_tickets.items) |ticket| {
+        // Build blockers string
+        var blockers_buf: [512]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&blockers_buf);
+        var writer = fbs.writer();
+        for (ticket.blockers.items, 0..) |blocker_id, i| {
+            if (i > 0) try writer.writeAll(", ");
+            try writer.writeAll(blocker_id);
+        }
+        const blockers_str = fbs.getWritten();
+
+        var buf: [1024]u8 = undefined;
+        const msg = try std.fmt.bufPrint(&buf, "{s:<8} [P{d}][{s}] - {s} <- [{s}]\n", .{ ticket.id, ticket.priority, ticket.status, ticket.title, blockers_str });
+        try stdout_file.writeAll(msg);
+    }
+
+    return 0;
 }
 
 fn handleClosedList(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
-    _ = allocator;
-    _ = args;
-    const stdout = stdout_file;
-    try stdout.writeAll("Error: closed command not yet implemented\n");
-    return 1;
+    // Check if tickets directory exists
+    var dir = std.fs.cwd().openDir(tickets_dir, .{}) catch {
+        return 0;
+    };
+    defer dir.close();
+
+    // Parse limit
+    var limit: usize = 20;
+    for (args) |arg| {
+        if (std.mem.startsWith(u8, arg, "--limit=")) {
+            limit = try std.fmt.parseInt(usize, arg[8..], 10);
+        }
+    }
+
+    // Get all ticket files with their modification times
+    const FileInfo = struct {
+        name: []const u8,
+        mtime: i128,
+    };
+    var files: std.ArrayList(FileInfo) = .empty;
+    defer {
+        for (files.items) |file| {
+            allocator.free(file.name);
+        }
+        files.deinit(allocator);
+    }
+
+    var iter = dir.iterate();
+    while (try iter.next()) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".md")) continue;
+
+        const stat = try dir.statFile(entry.name);
+        try files.append(allocator, .{
+            .name = try allocator.dupe(u8, entry.name),
+            .mtime = stat.mtime,
+        });
+    }
+
+    // Sort by modification time (most recent first)
+    std.mem.sort(FileInfo, files.items, {}, struct {
+        fn lessThan(_: void, a: FileInfo, b: FileInfo) bool {
+            return a.mtime > b.mtime;
+        }
+    }.lessThan);
+
+    // Check up to 100 most recently modified files
+    const check_limit = @min(files.items.len, 100);
+    var closed_count: usize = 0;
+
+    for (files.items[0..check_limit]) |file| {
+        if (closed_count >= limit) break;
+
+        const file_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ tickets_dir, file.name });
+        defer allocator.free(file_path);
+
+        const ticket = parseTicket(allocator, file_path) catch continue;
+        defer {
+            var t = ticket;
+            t.deinit();
+        }
+
+        if (std.mem.eql(u8, ticket.status, "closed") or std.mem.eql(u8, ticket.status, "done")) {
+            var buf: [1024]u8 = undefined;
+            const msg = try std.fmt.bufPrint(&buf, "{s:<8} [{s}] - {s}\n", .{ ticket.id, ticket.status, ticket.title });
+            try stdout_file.writeAll(msg);
+            closed_count += 1;
+        }
+    }
+
+    return 0;
 }
 
 fn handleDep(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
@@ -1522,6 +1831,7 @@ const TicketData = struct {
     deps: [][]const u8,
     links: [][]const u8,
     parent: []const u8,
+    priority: i32,
     allocator: std.mem.Allocator,
 
     fn deinit(self: *TicketData) void {
@@ -1549,6 +1859,7 @@ fn parseTicket(allocator: std.mem.Allocator, file_path: []const u8) !TicketData 
     var status: []const u8 = "open";
     var title: []const u8 = "";
     var parent: []const u8 = "";
+    var priority: i32 = 2;
     var deps: std.ArrayList([]const u8) = .empty;
     var links: std.ArrayList([]const u8) = .empty;
 
@@ -1586,6 +1897,10 @@ fn parseTicket(allocator: std.mem.Allocator, file_path: []const u8) !TicketData 
                 } else {
                     parent = value;
                 }
+            } else if (std.mem.startsWith(u8, trimmed, "priority:")) {
+                const colon_idx = std.mem.indexOfScalar(u8, trimmed, ':') orelse continue;
+                const value = std.mem.trim(u8, trimmed[colon_idx + 1 ..], " \t");
+                priority = std.fmt.parseInt(i32, value, 10) catch 2;
             } else if (std.mem.startsWith(u8, trimmed, "deps:")) {
                 const colon_idx = std.mem.indexOfScalar(u8, trimmed, ':') orelse continue;
                 const value = std.mem.trim(u8, trimmed[colon_idx + 1 ..], " \t");
@@ -1634,6 +1949,7 @@ fn parseTicket(allocator: std.mem.Allocator, file_path: []const u8) !TicketData 
         .deps = try deps.toOwnedSlice(allocator),
         .links = try links.toOwnedSlice(allocator),
         .parent = try allocator.dupe(u8, parent),
+        .priority = priority,
         .allocator = allocator,
     };
 }
