@@ -24,7 +24,7 @@ pub fn main() !u8 {
     }
 
     const command = args[1];
-    
+
     if (std.mem.eql(u8, command, "create")) {
         return handleCreate(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "status")) {
@@ -382,7 +382,7 @@ fn handleDep(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
     if (args.len > 0 and std.mem.eql(u8, args[0], "tree")) {
         return handleDepTree(allocator, args[1..]);
     }
-    
+
     if (args.len < 2) {
         try stderr_file.writeAll("Usage: ticket dep <id> <dependency-id>\n");
         try stderr_file.writeAll("       ticket dep tree [--full] <id>  - show dependency tree\n");
@@ -528,7 +528,7 @@ fn handleUndep(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
     var found = false;
     var new_deps: std.ArrayList([]const u8) = .empty;
     defer new_deps.deinit(allocator);
-    
+
     for (existing_deps) |dep| {
         if (std.mem.eql(u8, dep, actual_dep_id)) {
             found = true;
@@ -706,7 +706,7 @@ fn resolveTicketID(allocator: std.mem.Allocator, ticket_id: []const u8) ![]const
     // Try exact match first
     const exact_path = try std.fmt.allocPrint(allocator, "{s}/{s}.md", .{ tickets_dir, ticket_id });
     defer allocator.free(exact_path);
-    
+
     if (std.fs.cwd().access(exact_path, .{})) {
         return try allocator.dupe(u8, exact_path);
     } else |err| {
@@ -714,13 +714,13 @@ fn resolveTicketID(allocator: std.mem.Allocator, ticket_id: []const u8) ![]const
             return err;
         }
     }
-    
+
     // Try partial match
     var dir = std.fs.cwd().openDir(tickets_dir, .{ .iterate = true }) catch {
         return error.NotFound;
     };
     defer dir.close();
-    
+
     var iter = dir.iterate();
     var matches: std.ArrayList([]const u8) = .empty;
     defer {
@@ -729,23 +729,23 @@ fn resolveTicketID(allocator: std.mem.Allocator, ticket_id: []const u8) ![]const
         }
         matches.deinit(allocator);
     }
-    
+
     while (try iter.next()) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.name, ".md")) continue;
-        
+
         if (std.mem.indexOf(u8, entry.name, ticket_id) != null) {
             const match = try allocator.dupe(u8, entry.name);
             try matches.append(allocator, match);
         }
     }
-    
+
     if (matches.items.len == 0) {
         return error.NotFound;
     } else if (matches.items.len > 1) {
         return error.Ambiguous;
     }
-    
+
     return try std.fmt.allocPrint(allocator, "{s}/{s}", .{ tickets_dir, matches.items[0] });
 }
 
@@ -767,14 +767,14 @@ fn parseListField(allocator: std.mem.Allocator, content: []const u8, field: []co
         }
         result.deinit(allocator);
     }
-    
+
     var lines = std.mem.splitScalar(u8, content, '\n');
     var in_frontmatter = false;
     var frontmatter_count: u8 = 0;
-    
+
     while (lines.next()) |line| {
         const trimmed = std.mem.trim(u8, line, " \t\r");
-        
+
         if (std.mem.eql(u8, trimmed, "---")) {
             frontmatter_count += 1;
             if (frontmatter_count == 1) {
@@ -784,25 +784,25 @@ fn parseListField(allocator: std.mem.Allocator, content: []const u8, field: []co
             }
             continue;
         }
-        
+
         if (!in_frontmatter) continue;
-        
+
         if (std.mem.startsWith(u8, trimmed, field)) {
             const colon_idx = std.mem.indexOfScalar(u8, trimmed, ':') orelse continue;
             const value_start = colon_idx + 1;
             if (value_start >= trimmed.len) break;
-            
+
             const value = std.mem.trim(u8, trimmed[value_start..], " \t");
-            
+
             // Parse array syntax: [item1, item2, ...]
             if (std.mem.startsWith(u8, value, "[") and std.mem.endsWith(u8, value, "]")) {
                 const inner = value[1 .. value.len - 1];
                 const inner_trimmed = std.mem.trim(u8, inner, " \t");
-                
+
                 if (inner_trimmed.len == 0) {
                     break;
                 }
-                
+
                 var items = std.mem.splitScalar(u8, inner_trimmed, ',');
                 while (items.next()) |item| {
                     const item_trimmed = std.mem.trim(u8, item, " \t");
@@ -814,7 +814,7 @@ fn parseListField(allocator: std.mem.Allocator, content: []const u8, field: []co
             break;
         }
     }
-    
+
     return try result.toOwnedSlice(allocator);
 }
 
@@ -822,18 +822,18 @@ fn parseListField(allocator: std.mem.Allocator, content: []const u8, field: []co
 fn updateYAMLScalarField(allocator: std.mem.Allocator, file_path: []const u8, field: []const u8, value: []const u8) !void {
     const content = try std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024);
     defer allocator.free(content);
-    
+
     var result: std.ArrayList(u8) = .empty;
     defer result.deinit(allocator);
-    
+
     var lines = std.mem.splitScalar(u8, content, '\n');
     var in_frontmatter = false;
     var frontmatter_count: u8 = 0;
     var updated = false;
-    
+
     while (lines.next()) |line| {
         const trimmed = std.mem.trim(u8, line, " \t\r");
-        
+
         if (std.mem.eql(u8, trimmed, "---")) {
             try result.appendSlice(allocator, line);
             try result.append(allocator, '\n');
@@ -845,7 +845,7 @@ fn updateYAMLScalarField(allocator: std.mem.Allocator, file_path: []const u8, fi
             }
             continue;
         }
-        
+
         if (in_frontmatter and std.mem.startsWith(u8, trimmed, field) and std.mem.indexOfScalar(u8, trimmed, ':') != null) {
             // Replace this field
             try result.appendSlice(allocator, field);
@@ -858,12 +858,12 @@ fn updateYAMLScalarField(allocator: std.mem.Allocator, file_path: []const u8, fi
             try result.append(allocator, '\n');
         }
     }
-    
+
     // If field wasn't found, we'd need to add it (not implemented for simplicity)
     if (!updated) {
         return error.FieldNotFound;
     }
-    
+
     // Write back to file
     try std.fs.cwd().writeFile(.{ .sub_path = file_path, .data = result.items });
 }
@@ -871,18 +871,18 @@ fn updateYAMLScalarField(allocator: std.mem.Allocator, file_path: []const u8, fi
 fn updateYAMLField(allocator: std.mem.Allocator, file_path: []const u8, field: []const u8, values: []const []const u8) !void {
     const content = try std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024);
     defer allocator.free(content);
-    
+
     var result: std.ArrayList(u8) = .empty;
     defer result.deinit(allocator);
-    
+
     var lines = std.mem.splitScalar(u8, content, '\n');
     var in_frontmatter = false;
     var frontmatter_count: u8 = 0;
     var updated = false;
-    
+
     while (lines.next()) |line| {
         const trimmed = std.mem.trim(u8, line, " \t\r");
-        
+
         if (std.mem.eql(u8, trimmed, "---")) {
             try result.appendSlice(allocator, line);
             try result.append(allocator, '\n');
@@ -894,7 +894,7 @@ fn updateYAMLField(allocator: std.mem.Allocator, file_path: []const u8, field: [
             }
             continue;
         }
-        
+
         if (in_frontmatter and std.mem.startsWith(u8, trimmed, field) and std.mem.indexOfScalar(u8, trimmed, ':') != null) {
             // Replace this field
             try result.appendSlice(allocator, field);
@@ -912,12 +912,12 @@ fn updateYAMLField(allocator: std.mem.Allocator, file_path: []const u8, field: [
             try result.append(allocator, '\n');
         }
     }
-    
+
     // If field wasn't found, we'd need to add it (not implemented for simplicity)
     if (!updated) {
         return error.FieldNotFound;
     }
-    
+
     // Write back to file
     try std.fs.cwd().writeFile(.{ .sub_path = file_path, .data = result.items });
 }
@@ -931,7 +931,7 @@ const TicketData = struct {
     links: [][]const u8,
     parent: []const u8,
     allocator: std.mem.Allocator,
-    
+
     fn deinit(self: *TicketData) void {
         self.allocator.free(self.id);
         self.allocator.free(self.status);
@@ -952,22 +952,22 @@ const TicketData = struct {
 fn parseTicket(allocator: std.mem.Allocator, file_path: []const u8) !TicketData {
     const content = try std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024);
     defer allocator.free(content);
-    
+
     var id: []const u8 = "";
     var status: []const u8 = "open";
     var title: []const u8 = "";
     var parent: []const u8 = "";
     var deps: std.ArrayList([]const u8) = .empty;
     var links: std.ArrayList([]const u8) = .empty;
-    
+
     var lines = std.mem.splitScalar(u8, content, '\n');
     var in_frontmatter = false;
     var frontmatter_count: u8 = 0;
     var after_frontmatter = false;
-    
+
     while (lines.next()) |line| {
         const trimmed = std.mem.trim(u8, line, " \t\r");
-        
+
         if (std.mem.eql(u8, trimmed, "---")) {
             frontmatter_count += 1;
             if (frontmatter_count == 1) {
@@ -978,7 +978,7 @@ fn parseTicket(allocator: std.mem.Allocator, file_path: []const u8) !TicketData 
             }
             continue;
         }
-        
+
         if (in_frontmatter) {
             if (std.mem.startsWith(u8, trimmed, "id:")) {
                 const colon_idx = std.mem.indexOfScalar(u8, trimmed, ':') orelse continue;
@@ -1034,7 +1034,7 @@ fn parseTicket(allocator: std.mem.Allocator, file_path: []const u8) !TicketData 
             }
         }
     }
-    
+
     return TicketData{
         .id = try allocator.dupe(u8, id),
         .status = try allocator.dupe(u8, status),
@@ -1057,27 +1057,27 @@ fn loadAllTickets(allocator: std.mem.Allocator) !std.StringHashMap(TicketData) {
         }
         tickets.deinit();
     }
-    
+
     var dir = std.fs.cwd().openDir(tickets_dir, .{ .iterate = true }) catch {
         return tickets;
     };
     defer dir.close();
-    
+
     var iter = dir.iterate();
     while (try iter.next()) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.name, ".md")) continue;
-        
+
         const file_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ tickets_dir, entry.name });
         defer allocator.free(file_path);
-        
+
         const ticket = parseTicket(allocator, file_path) catch continue;
         if (ticket.id.len > 0) {
             const key = try allocator.dupe(u8, ticket.id);
             try tickets.put(key, ticket);
         }
     }
-    
+
     return tickets;
 }
 
@@ -1085,7 +1085,7 @@ fn loadAllTickets(allocator: std.mem.Allocator) !std.StringHashMap(TicketData) {
 fn handleDepTree(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
     var full_mode = false;
     var root_id: ?[]const u8 = null;
-    
+
     for (args) |arg| {
         if (std.mem.eql(u8, arg, "--full")) {
             full_mode = true;
@@ -1093,12 +1093,12 @@ fn handleDepTree(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
             root_id = arg;
         }
     }
-    
+
     if (root_id == null) {
         try stderr_file.writeAll("Usage: ticket dep tree [--full] <id>\n");
         return 1;
     }
-    
+
     // Load all tickets
     var tickets = try loadAllTickets(allocator);
     defer {
@@ -1110,14 +1110,14 @@ fn handleDepTree(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
         }
         tickets.deinit();
     }
-    
+
     if (tickets.count() == 0) {
         var buf: [512]u8 = undefined;
         const msg = try std.fmt.bufPrint(&buf, "Error: ticket {s} not found\n", .{root_id.?});
         try stderr_file.writeAll(msg);
         return 1;
     }
-    
+
     // Resolve partial ID
     var root: ?[]const u8 = null;
     var iter = tickets.keyIterator();
@@ -1132,20 +1132,20 @@ fn handleDepTree(allocator: std.mem.Allocator, args: []const [:0]const u8) !u8 {
             root = ticket_id.*;
         }
     }
-    
+
     if (root == null) {
         var buf: [512]u8 = undefined;
         const msg = try std.fmt.bufPrint(&buf, "Error: ticket {s} not found\n", .{root_id.?});
         try stderr_file.writeAll(msg);
         return 1;
     }
-    
+
     // Print tree
     var printed = std.StringHashMap(void).init(allocator);
     defer printed.deinit();
-    
+
     try printDepTree(allocator, &tickets, root.?, "", true, root.?, &printed, full_mode);
-    
+
     return 0;
 }
 
@@ -1164,9 +1164,9 @@ fn printDepTree(
     if (!full_mode and printed.contains(ticket_id)) {
         return;
     }
-    
+
     const ticket = tickets.get(ticket_id) orelse return;
-    
+
     // Print current ticket
     var buf: [1024]u8 = undefined;
     const msg = if (std.mem.eql(u8, ticket_id, root))
@@ -1176,9 +1176,9 @@ fn printDepTree(
         break :blk try std.fmt.bufPrint(&buf, "{s}{s}{s} [{s}] {s}\n", .{ prefix, connector, ticket_id, ticket.status, ticket.title });
     };
     try stdout_file.writeAll(msg);
-    
+
     try printed.put(try allocator.dupe(u8, ticket_id), {});
-    
+
     // Print dependencies
     if (ticket.deps.len > 0) {
         const new_prefix = if (std.mem.eql(u8, ticket_id, root))
@@ -1188,7 +1188,7 @@ fn printDepTree(
         else
             try std.fmt.allocPrint(allocator, "{s}│   ", .{prefix});
         defer allocator.free(new_prefix);
-        
+
         for (ticket.deps, 0..) |dep_id, i| {
             const is_last_dep = (i == ticket.deps.len - 1);
             try printDepTree(allocator, tickets, dep_id, new_prefix, is_last_dep, root, printed, full_mode);
@@ -1198,15 +1198,15 @@ fn printDepTree(
 
 test "basic CLI argument parsing" {
     const allocator = std.testing.allocator;
-    
+
     // Test that we can create args array
     var args: std.ArrayList([]const u8) = .empty;
     defer args.deinit(allocator);
-    
+
     try args.append(allocator, "ticket");
     try args.append(allocator, "create");
     try args.append(allocator, "Test ticket");
-    
+
     try std.testing.expectEqual(@as(usize, 3), args.items.len);
     try std.testing.expectEqualStrings("ticket", args.items[0]);
     try std.testing.expectEqualStrings("create", args.items[1]);
@@ -1215,4 +1215,108 @@ test "basic CLI argument parsing" {
 test "command string comparison" {
     try std.testing.expect(std.mem.eql(u8, "create", "create"));
     try std.testing.expect(!std.mem.eql(u8, "create", "status"));
+}
+
+test "TicketData struct initialization and cleanup" {
+    const allocator = std.testing.allocator;
+
+    var deps: std.ArrayList([]const u8) = .empty;
+    try deps.append(allocator, try allocator.dupe(u8, "tc-1234"));
+    try deps.append(allocator, try allocator.dupe(u8, "tc-5678"));
+
+    var links: std.ArrayList([]const u8) = .empty;
+    try links.append(allocator, try allocator.dupe(u8, "tc-abcd"));
+
+    var ticket = TicketData{
+        .id = try allocator.dupe(u8, "tc-test"),
+        .status = try allocator.dupe(u8, "open"),
+        .title = try allocator.dupe(u8, "Test Ticket"),
+        .deps = try deps.toOwnedSlice(allocator),
+        .links = try links.toOwnedSlice(allocator),
+        .parent = try allocator.dupe(u8, ""),
+        .allocator = allocator,
+    };
+    defer ticket.deinit();
+
+    try std.testing.expectEqualStrings("tc-test", ticket.id);
+    try std.testing.expectEqualStrings("open", ticket.status);
+    try std.testing.expectEqualStrings("Test Ticket", ticket.title);
+    try std.testing.expectEqual(@as(usize, 2), ticket.deps.len);
+    try std.testing.expectEqual(@as(usize, 1), ticket.links.len);
+}
+
+test "parseListField with empty array" {
+    const allocator = std.testing.allocator;
+    const content =
+        \\---
+        \\id: tc-1234
+        \\deps: []
+        \\---
+    ;
+
+    const result = try parseListField(allocator, content, "deps:");
+    defer {
+        for (result) |item| {
+            allocator.free(item);
+        }
+        allocator.free(result);
+    }
+
+    try std.testing.expectEqual(@as(usize, 0), result.len);
+}
+
+test "parseListField with single item" {
+    const allocator = std.testing.allocator;
+    const content =
+        \\---
+        \\id: tc-1234
+        \\deps: [tc-5678]
+        \\---
+    ;
+
+    const result = try parseListField(allocator, content, "deps:");
+    defer {
+        for (result) |item| {
+            allocator.free(item);
+        }
+        allocator.free(result);
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), result.len);
+    try std.testing.expectEqualStrings("tc-5678", result[0]);
+}
+
+test "parseListField with multiple items" {
+    const allocator = std.testing.allocator;
+    const content =
+        \\---
+        \\id: tc-1234
+        \\deps: [tc-5678, tc-9abc, tc-def0]
+        \\---
+    ;
+
+    const result = try parseListField(allocator, content, "deps:");
+    defer {
+        for (result) |item| {
+            allocator.free(item);
+        }
+        allocator.free(result);
+    }
+
+    try std.testing.expectEqual(@as(usize, 3), result.len);
+    try std.testing.expectEqualStrings("tc-5678", result[0]);
+    try std.testing.expectEqualStrings("tc-9abc", result[1]);
+    try std.testing.expectEqualStrings("tc-def0", result[2]);
+}
+
+test "RelationshipItem struct" {
+    const item = RelationshipItem{
+        .id = "tc-1234",
+        .status = "open",
+        .title = "Test ticket",
+    };
+
+    try std.testing.expectEqualStrings("tc-1234", item.id);
+    try std.testing.expectEqualStrings("open", item.status);
+    try std.testing.expectEqualStrings("Test ticket", item.title);
 }
