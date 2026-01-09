@@ -19,6 +19,14 @@ use_step_matcher("re")
 # Helper Functions
 # ============================================================================
 
+def get_ticket_script(context):
+    """Get the ticket script path, defaulting to ./ticket or using TICKET_SCRIPT env var."""
+    ticket_script = os.environ.get('TICKET_SCRIPT')
+    if ticket_script:
+        return ticket_script
+    return str(Path(context.project_dir) / 'ticket')
+
+
 def create_ticket(context, ticket_id, title, priority=2, parent=None):
     """Helper to create a ticket file."""
     tickets_dir = Path(context.test_dir) / '.tickets'
@@ -178,7 +186,7 @@ def step_run_command_non_tty(context, command):
     # Unescape \" to " in the command string
     command = command.replace('\\"', '"')
 
-    ticket_script = Path(context.project_dir) / 'ticket'
+    ticket_script = get_ticket_script(context)
     cmd = command.replace('ticket ', f'{ticket_script} ', 1)
 
     result = subprocess.run(
@@ -199,7 +207,7 @@ def step_run_command_non_tty(context, command):
 @when(r'I run "(?P<command>(?:[^"\\]|\\.)+)" with no stdin')
 def step_run_command_no_stdin(context, command):
     """Run a command with stdin closed."""
-    ticket_script = Path(context.project_dir) / 'ticket'
+    ticket_script = get_ticket_script(context)
     cmd = command.replace('ticket ', f'{ticket_script} ', 1)
 
     result = subprocess.run(
@@ -223,7 +231,7 @@ def step_run_command(context, command):
     # Unescape \" to " in the command string
     command = command.replace('\\"', '"')
 
-    ticket_script = Path(context.project_dir) / 'ticket'
+    ticket_script = get_ticket_script(context)
     cmd = command.replace('ticket ', f'{ticket_script} ', 1)
 
     result = subprocess.run(
