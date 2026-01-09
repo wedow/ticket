@@ -713,6 +713,103 @@ def cmd_edit(args: list[str]) -> int:
     return 0
 
 
+def cmd_link(args: list[str]) -> int:
+    """Link multiple tickets together symmetrically."""
+    if len(args) < 2:
+        print("Usage: ticket link <id> <id> [id...]", file=sys.stderr)
+        return 1
+    
+    # Resolve all ticket IDs to paths first
+    ticket_ids = []
+    ticket_paths = []
+    
+    for ticket_id in args:
+        try:
+            file_path = ticket_path(ticket_id)
+            ticket_ids.append(file_path.stem)
+            ticket_paths.append(file_path)
+        except SystemExit:
+            return 1
+    
+    # For each ticket, add links to all other tickets
+    total_added = 0
+    
+    for i, file_path in enumerate(ticket_paths):
+        current_id = ticket_ids[i]
+        ticket = parse_ticket(file_path)
+        
+        # Parse existing links
+        existing_links_str = ticket["frontmatter"].get("links", "[]")
+        existing_links = parse_list_field(existing_links_str)
+        
+        # Determine which links to add
+        links_to_add = []
+        for j, other_id in enumerate(ticket_ids):
+            if i != j and other_id not in existing_links:
+                links_to_add.append(other_id)
+        
+        if links_to_add:
+            # Add new links
+            new_links = existing_links + links_to_add
+            new_links_str = "[" + ", ".join(new_links) + "]"
+            update_yaml_field(file_path, "links", new_links_str)
+            total_added += len(links_to_add)
+    
+    if total_added == 0:
+        print("All links already exist")
+    else:
+        print(f"Added {total_added} link(s) between {len(ticket_ids)} tickets")
+    
+    return 0
+
+
+def cmd_unlink(args: list[str]) -> int:
+    """Remove link between two tickets."""
+    if len(args) != 2:
+        print("Usage: ticket unlink <id> <target-id>", file=sys.stderr)
+        return 1
+    
+    ticket_id = args[0]
+    target_id = args[1]
+    
+    # Resolve both ticket IDs
+    try:
+        file_path = ticket_path(ticket_id)
+        target_path = ticket_path(target_id)
+    except SystemExit:
+        return 1
+    
+    # Get actual IDs from file stems
+    actual_id = file_path.stem
+    actual_target_id = target_path.stem
+    
+    # Check if link exists in first ticket
+    ticket = parse_ticket(file_path)
+    existing_links_str = ticket["frontmatter"].get("links", "[]")
+    existing_links = parse_list_field(existing_links_str)
+    
+    if actual_target_id not in existing_links:
+        print("Link not found")
+        return 1
+    
+    # Remove link from first ticket
+    new_links = [link for link in existing_links if link != actual_target_id]
+    new_links_str = "[" + ", ".join(new_links) + "]"
+    update_yaml_field(file_path, "links", new_links_str)
+    
+    # Remove link from second ticket
+    target_ticket = parse_ticket(target_path)
+    target_links_str = target_ticket["frontmatter"].get("links", "[]")
+    target_links = parse_list_field(target_links_str)
+    
+    new_target_links = [link for link in target_links if link != actual_id]
+    new_target_links_str = "[" + ", ".join(new_target_links) + "]"
+    update_yaml_field(target_path, "links", new_target_links_str)
+    
+    print(f"Removed link: {actual_id} <-> {actual_target_id}")
+    return 0
+
+
 def main() -> int:
     """Main entry point for the ticket CLI."""
     args = sys.argv[1:]
@@ -748,6 +845,10 @@ def main() -> int:
         return cmd_closed(command_args)
     elif command == "edit":
         return cmd_edit(command_args)
+    elif command == "link":
+        return cmd_link(command_args)
+    elif command == "unlink":
+        return cmd_unlink(command_args)
 
     print("Ticket CLI - Python port (work in progress)")
     print(f"Command not yet implemented: {command}")

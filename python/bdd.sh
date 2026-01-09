@@ -26,3 +26,6 @@ uv run --with behave behave "${PROJECT_ROOT}/features/ticket_listing.feature"
 
 # Run ticket_edit feature tests
 uv run --with behave behave "${PROJECT_ROOT}/features/ticket_edit.feature"
+
+# Run ticket_links feature tests
+uv run --with behave behave "${PROJECT_ROOT}/features/ticket_links.feature"
