@@ -33,6 +33,8 @@ func Run(args []string) int {
 		return cmdQuery(commandArgs)
 	case "add-note":
 		return cmdAddNote(commandArgs)
+	case "show":
+		return cmdShow(commandArgs)
 	default:
 		fmt.Println("Ticket CLI - Go port (work in progress)")
 		fmt.Printf("Command not yet implemented: %s\n", command)
@@ -508,5 +510,353 @@ func cmdAddNote(args []string) int {
 	}
 
 	fmt.Printf("Note added to %s\n", targetID)
+	return 0
+}
+
+type TicketData struct {
+	ID           string
+	Frontmatter  map[string]interface{}
+	Title        string
+	FullContent  string
+	FilePath     string
+}
+
+func parseTicketFull(filePath string) (*TicketData, error) {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(string(content), "\n")
+
+	var frontmatterStart, frontmatterEnd int
+	frontmatterCount := 0
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "---" {
+			frontmatterCount++
+			if frontmatterCount == 1 {
+				frontmatterStart = i
+			} else if frontmatterCount == 2 {
+				frontmatterEnd = i
+				break
+			}
+		}
+	}
+
+	if frontmatterCount < 2 {
+		return nil, fmt.Errorf("invalid frontmatter in %s", filePath)
+	}
+
+	frontmatter := make(map[string]interface{})
+
+	for i := frontmatterStart + 1; i < frontmatterEnd; i++ {
+		line := lines[i]
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+
+		if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
+			arrayContent := strings.TrimSpace(value[1 : len(value)-1])
+			if arrayContent == "" {
+				frontmatter[key] = []string{}
+			} else {
+				items := strings.Split(arrayContent, ",")
+				var trimmedItems []string
+				for _, item := range items {
+					trimmed := strings.TrimSpace(item)
+					if trimmed != "" {
+						trimmedItems = append(trimmedItems, trimmed)
+					}
+				}
+				frontmatter[key] = trimmedItems
+			}
+		} else if key == "priority" {
+			priority, err := strconv.Atoi(value)
+			if err == nil {
+				frontmatter[key] = priority
+			} else {
+				frontmatter[key] = value
+			}
+		} else {
+			frontmatter[key] = value
+		}
+	}
+
+	title := ""
+	for i := frontmatterEnd + 1; i < len(lines); i++ {
+		line := lines[i]
+		if strings.HasPrefix(line, "# ") {
+			title = strings.TrimSpace(line[2:])
+			break
+		}
+	}
+
+	id := ""
+	if idVal, ok := frontmatter["id"].(string); ok {
+		id = idVal
+	}
+
+	return &TicketData{
+		ID:          id,
+		Frontmatter: frontmatter,
+		Title:       title,
+		FullContent: string(content),
+		FilePath:    filePath,
+	}, nil
+}
+
+func loadAllTickets() (map[string]*TicketData, error) {
+	tickets := make(map[string]*TicketData)
+
+	if _, err := os.Stat(ticketsDir); os.IsNotExist(err) {
+		return tickets, nil
+	}
+
+	files, err := filepath.Glob(filepath.Join(ticketsDir, "*.md"))
+	if err != nil {
+		return nil, err
+	}
+
+	for _, file := range files {
+		ticket, err := parseTicketFull(file)
+		if err != nil {
+			continue
+		}
+		if ticket.ID != "" {
+			tickets[ticket.ID] = ticket
+		}
+	}
+
+	return tickets, nil
+}
+
+func parseListField(value interface{}) []string {
+	if value == nil {
+		return []string{}
+	}
+
+	switch v := value.(type) {
+	case []string:
+		return v
+	case []interface{}:
+		var result []string
+		for _, item := range v {
+			if str, ok := item.(string); ok {
+				result = append(result, str)
+			}
+		}
+		return result
+	case string:
+		if v == "" || v == "[]" {
+			return []string{}
+		}
+		v = strings.Trim(v, "[]")
+		items := strings.Split(v, ",")
+		var result []string
+		for _, item := range items {
+			trimmed := strings.TrimSpace(item)
+			if trimmed != "" {
+				result = append(result, trimmed)
+			}
+		}
+		return result
+	default:
+		return []string{}
+	}
+}
+
+func cmdShow(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: ticket show <id>")
+		return 1
+	}
+
+	ticketID := args[0]
+
+	filePath, err := resolveTicketID(ticketID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 1
+	}
+
+	targetID := strings.TrimSuffix(filepath.Base(filePath), ".md")
+
+	allTickets, err := loadAllTickets()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading tickets: %v\n", err)
+		return 1
+	}
+
+	targetTicket, ok := allTickets[targetID]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "Error: ticket '%s' not found\n", ticketID)
+		return 1
+	}
+
+	targetFm := targetTicket.Frontmatter
+
+	var blockers []struct {
+		id     string
+		status string
+		title  string
+	}
+	var blocking []struct {
+		id     string
+		status string
+		title  string
+	}
+	var children []struct {
+		id     string
+		status string
+		title  string
+	}
+	var linked []struct {
+		id     string
+		status string
+		title  string
+	}
+
+	targetDeps := parseListField(targetFm["deps"])
+	targetLinks := parseListField(targetFm["links"])
+	targetParent := ""
+	if p, ok := targetFm["parent"].(string); ok {
+		targetParent = p
+	}
+
+	for tid, ticket := range allTickets {
+		fm := ticket.Frontmatter
+		status := "open"
+		if s, ok := fm["status"].(string); ok {
+			status = s
+		}
+
+		deps := parseListField(fm["deps"])
+		for _, dep := range deps {
+			if dep == targetID && status != "closed" {
+				blocking = append(blocking, struct {
+					id     string
+					status string
+					title  string
+				}{tid, status, ticket.Title})
+			}
+		}
+
+		parent := ""
+		if p, ok := fm["parent"].(string); ok {
+			parent = p
+		}
+		if parent == targetID {
+			children = append(children, struct {
+				id     string
+				status string
+				title  string
+			}{tid, status, ticket.Title})
+		}
+	}
+
+	for _, dep := range targetDeps {
+		if depTicket, ok := allTickets[dep]; ok {
+			depStatus := "open"
+			if s, ok := depTicket.Frontmatter["status"].(string); ok {
+				depStatus = s
+			}
+			if depStatus != "closed" {
+				blockers = append(blockers, struct {
+					id     string
+					status string
+					title  string
+				}{dep, depStatus, depTicket.Title})
+			}
+		}
+	}
+
+	for _, link := range targetLinks {
+		if linkTicket, ok := allTickets[link]; ok {
+			linkStatus := "open"
+			if s, ok := linkTicket.Frontmatter["status"].(string); ok {
+				linkStatus = s
+			}
+			linked = append(linked, struct {
+				id     string
+				status string
+				title  string
+			}{link, linkStatus, linkTicket.Title})
+		}
+	}
+
+	lines := strings.Split(targetTicket.FullContent, "\n")
+	inFrontmatter := false
+
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "---" {
+			if !inFrontmatter {
+				inFrontmatter = true
+				fmt.Println(line)
+			} else {
+				inFrontmatter = false
+				fmt.Println(line)
+			}
+			continue
+		}
+
+		if inFrontmatter {
+			if strings.HasPrefix(line, "parent:") && targetParent != "" {
+				if parentTicket, ok := allTickets[targetParent]; ok {
+					fmt.Printf("%s  # %s\n", line, parentTicket.Title)
+				} else {
+					fmt.Println(line)
+				}
+			} else {
+				fmt.Println(line)
+			}
+		} else {
+			fmt.Println(line)
+		}
+	}
+
+	if len(blockers) > 0 {
+		fmt.Println()
+		fmt.Println("## Blockers")
+		fmt.Println()
+		for _, b := range blockers {
+			fmt.Printf("- %s [%s] %s\n", b.id, b.status, b.title)
+		}
+	}
+
+	if len(blocking) > 0 {
+		fmt.Println()
+		fmt.Println("## Blocking")
+		fmt.Println()
+		for _, b := range blocking {
+			fmt.Printf("- %s [%s] %s\n", b.id, b.status, b.title)
+		}
+	}
+
+	if len(children) > 0 {
+		fmt.Println()
+		fmt.Println("## Children")
+		fmt.Println()
+		for _, c := range children {
+			fmt.Printf("- %s [%s] %s\n", c.id, c.status, c.title)
+		}
+	}
+
+	if len(linked) > 0 {
+		fmt.Println()
+		fmt.Println("## Linked")
+		fmt.Println()
+		for _, l := range linked {
+			fmt.Printf("- %s [%s] %s\n", l.id, l.status, l.title)
+		}
+	}
+
 	return 0
 }
