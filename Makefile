@@ -1,5 +1,5 @@
 .PHONY: python python-lint python-format python-type python-test python-check
-.PHONY: go go-lint go-type go-fmt go-test go-check
+.PHONY: go go-lint go-type go-fmt go-test go-bdd go-check
 
 PYTHON_DIR := python/ticket
 GO_DIR := go/ticket
@@ -47,3 +47,7 @@ go-fmt:
 go-test:
 	@echo "Running go test..."
 	cd $(GO_DIR) && go test ./...
+
+go-bdd:
+	@echo "Running Go BDD tests..."
+	./go/bdd.sh
