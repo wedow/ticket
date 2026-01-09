@@ -43,6 +43,8 @@ func Run(args []string) int {
 		return cmdClose(commandArgs)
 	case "reopen":
 		return cmdReopen(commandArgs)
+	case "edit":
+		return cmdEdit(commandArgs)
 	default:
 		fmt.Println("Ticket CLI - Go port (work in progress)")
 		fmt.Printf("Command not yet implemented: %s\n", command)
@@ -982,4 +984,44 @@ func cmdReopen(args []string) int {
 	}
 
 	return cmdStatus([]string{args[0], "open"})
+}
+
+func cmdEdit(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: ticket edit <id>")
+		return 1
+	}
+
+	ticketID := args[0]
+
+	filePath, err := resolveTicketID(ticketID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 1
+	}
+
+	// Check if stdin and stdout are both TTY
+	stdinStat, _ := os.Stdin.Stat()
+	stdoutStat, _ := os.Stdout.Stat()
+	isTTY := (stdinStat.Mode()&os.ModeCharDevice) != 0 && (stdoutStat.Mode()&os.ModeCharDevice) != 0
+
+	if isTTY {
+		// Open in editor
+		editor := os.Getenv("EDITOR")
+		if editor == "" {
+			editor = "vi"
+		}
+		cmd := exec.Command(editor, filePath)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return 1
+		}
+	} else {
+		// Non-TTY mode: just print the file path
+		fmt.Printf("Edit ticket file: %s\n", filePath)
+	}
+
+	return 0
 }
