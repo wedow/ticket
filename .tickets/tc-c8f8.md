@@ -1,6 +1,6 @@
 ---
 id: tc-c8f8
-status: open
+status: closed
 deps: [tc-9c9c, tc-e42d]
 links: []
 created: 2026-01-09T13:13:43Z
@@ -24,3 +24,7 @@ Add this line to python/bdd.sh:
 # ...
 uv run --with behave behave features/id_resolution.feature
 ```
+
+**2026-01-09T13:57:04Z**
+
+Successfully ported id_resolution feature to Python. The ticket_path() function in cli.py already implements partial ID matching. Added id_resolution.feature test to python/bdd.sh. All 10 scenarios pass.

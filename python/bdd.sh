@@ -35,3 +35,6 @@ uv run --with behave behave "${PROJECT_ROOT}/features/ticket_dependencies.featur
 
 # Run ticket_query feature tests
 uv run --with behave behave "${PROJECT_ROOT}/features/ticket_query.feature"
+
+# Run id_resolution feature tests
+uv run --with behave behave "${PROJECT_ROOT}/features/id_resolution.feature"
