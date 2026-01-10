@@ -1,6 +1,6 @@
 ---
 id: tc-be36
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-01-10T00:55:23Z
@@ -33,3 +33,9 @@ Create `docs/SPEC_REVIEW_TYPESCRIPT.md` documenting:
 
 If any issues are found, create new tickets to address them.
 
+
+## Notes
+
+**2026-01-10T04:21:58Z**
+
+TypeScript implementation review completed. Key findings: 101/101 BDD tests pass (100%). dep tree sorting is CORRECT (better than Python). Missing: migrate-beads command, add-note stdin support, add-note empty validation. Overall: excellent implementation, production-ready for most use cases. See docs/SPEC_REVIEW_TYPESCRIPT.md for full details.
