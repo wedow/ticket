@@ -50,7 +50,7 @@ function main(): number {
   }
 
   const command = args[0];
-  const commandArgs = args.slice(1);
+  const _commandArgs = args.slice(1);
 
   console.log("Ticket CLI - TypeScript port (work in progress)");
   console.log(`Command not yet implemented: ${command}`);

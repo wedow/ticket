@@ -10,7 +10,8 @@
     "dev": "bun run src/cli.ts",
     "test": "bun test",
     "build": "bun build src/cli.ts --outdir dist --target bun",
-    "lint": "bun --bun tsc --noEmit"
+    "lint": "eslint src tests",
+    "typecheck": "bun --bun tsc --noEmit"
   },
   "keywords": [
     "ticket",
@@ -20,7 +21,10 @@
   "author": "Ray Myers",
   "license": "MIT",
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@typescript-eslint/eslint-plugin": "^8.52.0",
+    "@typescript-eslint/parser": "^8.52.0",
+    "eslint": "^9.39.2"
   },
   "peerDependencies": {
     "typescript": "^5.0.0"
