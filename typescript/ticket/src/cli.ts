@@ -544,6 +544,35 @@ function cmdReopen(args: string[]): number {
   return cmdStatus([args[0], "open"]);
 }
 
+function cmdEdit(args: string[]): number {
+  if (args.length === 0) {
+    console.error("Usage: ticket edit <id>");
+    return 1;
+  }
+  
+  const ticketId = args[0];
+  const filePath = ticketPath(ticketId);
+  
+  if (!filePath) {
+    return 1;
+  }
+  
+  if (process.stdin.isTTY && process.stdout.isTTY) {
+    const editor = process.env.EDITOR || "vi";
+    const result = spawnSync(editor, [filePath], {
+      stdio: "inherit",
+    });
+    
+    if (result.status !== 0) {
+      return 1;
+    }
+  } else {
+    console.log(`Edit ticket file: ${filePath}`);
+  }
+  
+  return 0;
+}
+
 function cmdDep(args: string[]): number {
   if (args.length < 2) {
     console.error("Usage: ticket dep <id> <dependency-id>");
@@ -1027,6 +1056,8 @@ function main(): number {
     return cmdCreate(commandArgs);
   } else if (command === "show") {
     return cmdShow(commandArgs);
+  } else if (command === "edit") {
+    return cmdEdit(commandArgs);
   } else if (command === "status") {
     return cmdStatus(commandArgs);
   } else if (command === "start") {
