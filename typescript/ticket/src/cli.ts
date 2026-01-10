@@ -581,6 +581,43 @@ function cmdQuery(args: string[]): number {
   return 0;
 }
 
+function isoDate(): string {
+  return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+function cmdAddNote(args: string[]): number {
+  if (args.length === 0) {
+    console.error("Usage: ticket add-note <id> [note text]");
+    return 1;
+  }
+
+  const ticketId = args[0];
+  const filePath = ticketPath(ticketId);
+
+  if (!filePath) {
+    return 1;
+  }
+
+  const actualId = path.basename(filePath, ".md");
+
+  const note = args.length > 1 ? args.slice(1).join(" ") : "";
+
+  const timestamp = isoDate();
+
+  let content = fs.readFileSync(filePath, "utf-8");
+
+  if (!content.includes("## Notes")) {
+    content += "\n## Notes\n";
+  }
+
+  content += `\n**${timestamp}**\n\n${note}\n`;
+
+  fs.writeFileSync(filePath, content, "utf-8");
+
+  console.log(`Note added to ${actualId}`);
+  return 0;
+}
+
 function main(): number {
   const args = process.argv.slice(2);
 
@@ -604,6 +641,8 @@ function main(): number {
     return cmdUnlink(commandArgs);
   } else if (command === "query") {
     return cmdQuery(commandArgs);
+  } else if (command === "add-note") {
+    return cmdAddNote(commandArgs);
   }
 
   console.log("Ticket CLI - TypeScript port (work in progress)");
