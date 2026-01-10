@@ -1,6 +1,6 @@
 ---
 id: tc-eab3
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-01-10T00:54:33Z
@@ -39,3 +39,9 @@ bun test features/<feature_name>.feature
 9. ticket_query (depends on listing)
 10. id_resolution (depends on query)
 
+
+## Notes
+
+**2026-01-10T01:04:26Z**
+
+Created 10 tickets for porting BDD features to TypeScript: ticket_creation (tc-6167), ticket_show (tc-38a9), ticket_status (tc-51e6), ticket_listing (tc-4f96), ticket_notes (tc-451c), ticket_edit (tc-b499), ticket_dependencies (tc-e910), ticket_links (tc-0e69), ticket_query (tc-130b), and id_resolution (tc-35e3). All tickets have priority 2 and include instructions for adding test lines to typescript/bdd.sh.
