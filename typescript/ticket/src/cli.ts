@@ -274,6 +274,91 @@ function cmdUnlink(args: string[]): number {
   return 0;
 }
 
+function cmdShow(args: string[]): number {
+  if (args.length === 0) {
+    console.error("Usage: ticket show <id>");
+    return 1;
+  }
+  
+  const ticketId = args[0];
+  const filePath = ticketPath(ticketId);
+  
+  if (!filePath) {
+    return 1;
+  }
+  
+  const content = fs.readFileSync(filePath, "utf-8");
+  console.log(content);
+  
+  return 0;
+}
+
+function cmdStatus(args: string[]): number {
+  const VALID_STATUSES = ["open", "in_progress", "closed"];
+  
+  if (args.length < 2) {
+    console.error("Usage: ticket status <id> <status>");
+    console.error(`Valid statuses: ${VALID_STATUSES.join(" ")}`);
+    return 1;
+  }
+  
+  const ticketId = args[0];
+  const status = args[1];
+  
+  if (!VALID_STATUSES.includes(status)) {
+    console.error(`Error: invalid status '${status}'. Must be one of: ${VALID_STATUSES.join(" ")}`);
+    return 1;
+  }
+  
+  const filePath = ticketPath(ticketId);
+  
+  if (!filePath) {
+    return 1;
+  }
+  
+  const actualId = path.basename(filePath, ".md");
+  updateYamlField(filePath, "status", status);
+  
+  console.log(`Updated ${actualId} -> ${status}`);
+  return 0;
+}
+
+function cmdDep(args: string[]): number {
+  if (args.length < 2) {
+    console.error("Usage: ticket dep <id> <dependency-id>");
+    return 1;
+  }
+  
+  const ticketId = args[0];
+  const depId = args[1];
+  
+  const filePath = ticketPath(ticketId);
+  const depPath = ticketPath(depId);
+  
+  if (!filePath || !depPath) {
+    return 1;
+  }
+  
+  const actualId = path.basename(filePath, ".md");
+  const actualDepId = path.basename(depPath, ".md");
+  
+  const ticket = parseTicket(filePath);
+  const existingDepsStr = ticket.frontmatter.deps || "[]";
+  const existingDeps = parseListField(existingDepsStr);
+  
+  if (existingDeps.includes(actualDepId)) {
+    console.log("Dependency already exists");
+    return 0;
+  }
+  
+  const newDeps = [...existingDeps, actualDepId];
+  const newDepsStr = "[" + newDeps.join(", ") + "]";
+  updateYamlField(filePath, "deps", newDepsStr);
+  
+  console.log(`Added dependency: ${actualId} -> ${actualDepId}`);
+  return 0;
+}
+
 function cmdQuery(args: string[]): number {
   if (!fs.existsSync(TICKETS_DIR)) {
     return 0;
@@ -346,7 +431,13 @@ function main(): number {
   const command = args[0];
   const commandArgs = args.slice(1);
 
-  if (command === "link") {
+  if (command === "show") {
+    return cmdShow(commandArgs);
+  } else if (command === "status") {
+    return cmdStatus(commandArgs);
+  } else if (command === "dep") {
+    return cmdDep(commandArgs);
+  } else if (command === "link") {
     return cmdLink(commandArgs);
   } else if (command === "unlink") {
     return cmdUnlink(commandArgs);
