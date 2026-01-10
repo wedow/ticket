@@ -1,7 +1,7 @@
 .PHONY: python python-lint python-format python-type python-test python-check
 .PHONY: go go-lint go-type go-fmt go-test go-bdd go-check
 .PHONY: zig zig-lint zig-type zig-test zig-bdd zig-check
-.PHONY: typescript typescript-lint typescript-type typescript-test typescript-check
+.PHONY: typescript typescript-lint typescript-type typescript-test typescript-bdd typescript-check
 
 PYTHON_DIR := python/ticket
 GO_DIR := go/ticket
@@ -91,3 +91,7 @@ typescript-type:
 typescript-test:
 	@echo "Running TypeScript tests..."
 	cd $(TYPESCRIPT_DIR) && bun test
+
+typescript-bdd:
+	@echo "Running TypeScript BDD tests..."
+	bash typescript/bdd.sh

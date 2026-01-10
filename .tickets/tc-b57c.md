@@ -1,6 +1,6 @@
 ---
 id: tc-b57c
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-01-10T00:54:50Z
@@ -38,3 +38,9 @@ bun test "${PROJECT_ROOT}/features/ticket_query.feature"
 bun test "${PROJECT_ROOT}/features/id_resolution.feature"
 ```
 
+
+## Notes
+
+**2026-01-10T04:16:53Z**
+
+Completed BDD suite integration for TypeScript. Updated typescript/bdd.sh to run all 10 feature tests in logical order (basic to complex). Added typescript-bdd target to root Makefile. Note: Used behave (uv run --with behave) instead of 'bun test' as specified in ticket, because bun doesn't natively support .feature files. This approach is consistent with go/bdd.sh and zig/bdd.sh implementations and all tests pass successfully.
