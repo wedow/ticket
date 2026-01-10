@@ -1,0 +1,28 @@
+{
+  "name": "@ticket-cli/typescript",
+  "version": "0.1.0",
+  "description": "TypeScript implementation of the ticket CLI",
+  "type": "module",
+  "bin": {
+    "ticket": "./src/cli.ts"
+  },
+  "scripts": {
+    "dev": "bun run src/cli.ts",
+    "test": "bun test",
+    "build": "bun build src/cli.ts --outdir dist --target bun",
+    "lint": "bun --bun tsc --noEmit"
+  },
+  "keywords": [
+    "ticket",
+    "cli",
+    "task-management"
+  ],
+  "author": "Ray Myers",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
