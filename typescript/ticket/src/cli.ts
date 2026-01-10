@@ -1,7 +1,9 @@
 #!/usr/bin/env bun
 
+import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
+import { spawnSync } from "child_process";
 
 const TICKETS_DIR = ".tickets";
 
@@ -50,6 +52,37 @@ function ensureDir(): void {
   if (!fs.existsSync(TICKETS_DIR)) {
     fs.mkdirSync(TICKETS_DIR, { recursive: true });
   }
+}
+
+function generateId(): string {
+  const dirName = path.basename(process.cwd());
+  
+  const segments = dirName.replace(/-/g, " ").replace(/_/g, " ").split(" ");
+  let prefix = segments.map(s => s[0]).join("");
+  
+  if (!prefix) {
+    prefix = dirName.substring(0, 3);
+  }
+  
+  const entropy = `${process.pid}${Math.floor(Date.now() / 1000)}`;
+  const hashVal = crypto.createHash("sha256").update(entropy).digest("hex").substring(0, 4);
+  
+  return `${prefix}-${hashVal}`;
+}
+
+function getGitUserName(): string {
+  try {
+    const result = spawnSync("git", ["config", "user.name"], {
+      encoding: "utf-8",
+    });
+    
+    if (result.status === 0) {
+      return result.stdout.trim();
+    }
+  } catch (error) {
+    // Ignore errors
+  }
+  return "";
 }
 
 function ticketPath(ticketId: string): string | null {
@@ -612,6 +645,139 @@ function isoDate(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
+function cmdCreate(args: string[]): number {
+  ensureDir();
+
+  let title = "";
+  let description = "";
+  let design = "";
+  let acceptance = "";
+  let priority = 2;
+  let issueType = "task";
+  let assignee = getGitUserName();
+  let externalRef = "";
+  let parent = "";
+
+  let i = 0;
+  while (i < args.length) {
+    const arg = args[i];
+    if (arg === "-d" || arg === "--description") {
+      if (i + 1 >= args.length) {
+        console.error(`Error: ${arg} requires an argument`);
+        return 1;
+      }
+      description = args[i + 1];
+      i += 2;
+    } else if (arg === "--design") {
+      if (i + 1 >= args.length) {
+        console.error(`Error: ${arg} requires an argument`);
+        return 1;
+      }
+      design = args[i + 1];
+      i += 2;
+    } else if (arg === "--acceptance") {
+      if (i + 1 >= args.length) {
+        console.error(`Error: ${arg} requires an argument`);
+        return 1;
+      }
+      acceptance = args[i + 1];
+      i += 2;
+    } else if (arg === "-p" || arg === "--priority") {
+      if (i + 1 >= args.length) {
+        console.error(`Error: ${arg} requires an argument`);
+        return 1;
+      }
+      priority = parseInt(args[i + 1]);
+      i += 2;
+    } else if (arg === "-t" || arg === "--type") {
+      if (i + 1 >= args.length) {
+        console.error(`Error: ${arg} requires an argument`);
+        return 1;
+      }
+      issueType = args[i + 1];
+      i += 2;
+    } else if (arg === "-a" || arg === "--assignee") {
+      if (i + 1 >= args.length) {
+        console.error(`Error: ${arg} requires an argument`);
+        return 1;
+      }
+      assignee = args[i + 1];
+      i += 2;
+    } else if (arg === "--external-ref") {
+      if (i + 1 >= args.length) {
+        console.error(`Error: ${arg} requires an argument`);
+        return 1;
+      }
+      externalRef = args[i + 1];
+      i += 2;
+    } else if (arg === "--parent") {
+      if (i + 1 >= args.length) {
+        console.error(`Error: ${arg} requires an argument`);
+        return 1;
+      }
+      parent = args[i + 1];
+      i += 2;
+    } else if (arg.startsWith("-")) {
+      console.error(`Unknown option: ${arg}`);
+      return 1;
+    } else {
+      title = arg;
+      i += 1;
+    }
+  }
+
+  title = title || "Untitled";
+  const ticketId = generateId();
+  const filePath = path.join(TICKETS_DIR, `${ticketId}.md`);
+  const now = isoDate();
+
+  const contentParts: string[] = [];
+  contentParts.push("---");
+  contentParts.push(`id: ${ticketId}`);
+  contentParts.push("status: open");
+  contentParts.push("deps: []");
+  contentParts.push("links: []");
+  contentParts.push(`created: ${now}`);
+  contentParts.push(`type: ${issueType}`);
+  contentParts.push(`priority: ${priority}`);
+  if (assignee) {
+    contentParts.push(`assignee: ${assignee}`);
+  }
+  if (externalRef) {
+    contentParts.push(`external-ref: ${externalRef}`);
+  }
+  if (parent) {
+    contentParts.push(`parent: ${parent}`);
+  }
+  contentParts.push("---");
+  contentParts.push(`# ${title}`);
+  contentParts.push("");
+
+  if (description) {
+    contentParts.push(description);
+    contentParts.push("");
+  }
+
+  if (design) {
+    contentParts.push("## Design");
+    contentParts.push("");
+    contentParts.push(design);
+    contentParts.push("");
+  }
+
+  if (acceptance) {
+    contentParts.push("## Acceptance Criteria");
+    contentParts.push("");
+    contentParts.push(acceptance);
+    contentParts.push("");
+  }
+
+  fs.writeFileSync(filePath, contentParts.join("\n"), "utf-8");
+
+  console.log(ticketId);
+  return 0;
+}
+
 function cmdAddNote(args: string[]): number {
   if (args.length === 0) {
     console.error("Usage: ticket add-note <id> [note text]");
@@ -857,7 +1023,9 @@ function main(): number {
   const command = args[0];
   const commandArgs = args.slice(1);
 
-  if (command === "show") {
+  if (command === "create") {
+    return cmdCreate(commandArgs);
+  } else if (command === "show") {
     return cmdShow(commandArgs);
   } else if (command === "status") {
     return cmdStatus(commandArgs);
