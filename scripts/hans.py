@@ -40,10 +40,12 @@ def format_system_prompt(data: dict) -> Text:
     text = text.replace("\n", " ")
 
     result = Text()
-    result.append("SysPrompt", style="bold magenta")
-    result.append(f" src=", style="dim")
+    result.append("[", style="dim")
+    result.append("SysPrompt  ", style="magenta")
+    result.append("src=", style="dim")
     result.append(source, style="cyan")
-    result.append(" ")
+    result.append("]", style="dim")
+    result.append("\n")
     result.append(truncate(text, 60), style="dim")
     return result
 
@@ -61,16 +63,17 @@ def format_message(data: dict, truncate_text: bool=True) -> Text:
             text = str(first)
 
     result = Text()
-    result.append("Message", style="bold blue")
-    result.append(" ")
+    result.append("[", style="dim")
+    result.append("Message  ", style="blue")
     result.append(role, style="cyan")
-    result.append(" ")
+    result.append("]", style="dim")
 
     if truncate_text:
         text = text.replace("\n", " ")
+        result.append("\n")
         result.append(truncate(text, 70), style="dim")
     else:
-        result.append(":\n", style="dim")
+        result.append("\n")
         result.append(text, style="dim")
 
     return result
@@ -81,8 +84,8 @@ def format_action(data: dict) -> Text:
     action = data.get("action", {})
 
     result = Text()
-    result.append("Action", style="bold green")
-    result.append(" ")
+    result.append("[", style="dim")
+    result.append("Action  ", style="green")
 
     if tool == "file_editor":
         cmd = action.get("command", "?")
@@ -91,12 +94,14 @@ def format_action(data: dict) -> Text:
         result.append(tool, style="yellow")
         result.append(":", style="dim")
         result.append(cmd, style="cyan")
-        result.append(" → ", style="dim")
+        result.append("]", style="dim")
+        result.append("\n→ ")
         result.append(path, style="dim")
     elif tool == "terminal":
         cmd = action.get("command", "").replace("\n", " ")
         result.append("terminal", style="yellow")
-        result.append(" ")
+        result.append("]", style="dim")
+        result.append("\n")
         result.append(truncate(cmd, 75), style="dim")
     else:
         thought = data.get("thought", [])
@@ -105,7 +110,8 @@ def format_action(data: dict) -> Text:
             thought_text = thought[0].get("text", "")
         thought_text = thought_text.replace("\n", " ")
         result.append(tool, style="yellow")
-        result.append(" ")
+        result.append("]", style="dim")
+        result.append("\n")
         result.append(truncate(thought_text, 70), style="dim")
 
     return result
@@ -128,16 +134,17 @@ def format_observation(data: dict) -> Text:
     text = text.replace("\n", " ")
 
     result = Text()
-    result.append("Obs", style="bold yellow")
-    result.append(" ")
+    result.append("[", style="dim")
+    result.append("Obs  ", style="yellow")
     result.append(tool, style="dim cyan")
-    result.append(" ")
+    result.append("]", style="dim")
 
     if is_error:
-        result.append("[ERR]", style="bold red")
-        result.append(" ")
+        result.append("\n")
+        result.append("[ERR] ", style="red")
         result.append(truncate(text, 65), style="dim")
     else:
+        result.append("\n")
         result.append(truncate(text, 70), style="dim")
 
     return result
@@ -146,8 +153,10 @@ def format_unknown(event_type: str, data: dict) -> Text:
     """Unknown event type: Show type and first few keys."""
     keys = list(data.keys())[:5]
     result = Text()
-    result.append(event_type, style="bold red")
-    result.append(" keys=", style="dim")
+    result.append("[", style="dim")
+    result.append(event_type, style="red")
+    result.append("]", style="dim")
+    result.append("\nkeys=")
     result.append(str(keys), style="dim")
     return result
 
@@ -168,7 +177,7 @@ class MinimalVisualizer(ConversationVisualizerBase):
             console.print(format_unknown(type(event).__name__, event.model_dump()))
             event_text = Text()
             event_text.append("\n\n[EVENT] ", style="dim")
-            event_text.append(type(event).__name__, style="bold red")
+            event_text.append(type(event).__name__, style="red")
             event_text.append(": ", style="dim")
             event_text.append(event.model_dump_json()[:200] + "...", style="dim")
             console.print(event_text)
@@ -193,7 +202,7 @@ class InteractiveVisualizer(ConversationVisualizerBase):
             console.print(format_unknown(type(event).__name__, event.model_dump()))
             event_text = Text()
             event_text.append("\n\n[EVENT] ", style="dim")
-            event_text.append(type(event).__name__, style="bold red")
+            event_text.append(type(event).__name__, style="red")
             event_text.append(": ", style="dim")
             event_text.append(event.model_dump_json()[:200] + "...", style="dim")
             console.print(event_text)
