@@ -8,6 +8,8 @@
 # ///
 import os
 import subprocess
+import argparse
+import readline
 
 from openhands.sdk import LLM, Agent, Conversation, Event, Tool
 from openhands.sdk.event import MessageEvent, SystemPromptEvent, ActionEvent, ObservationEvent
@@ -15,10 +17,8 @@ from openhands.sdk.conversation.visualizer import ConversationVisualizerBase
 from openhands.tools.file_editor import FileEditorTool
 from openhands.tools.task_tracker import TaskTrackerTool
 from openhands.tools.terminal import TerminalTool
-
-print("🚀 Starting Hans")
-
-MAX_ITERATIONS=10
+from openhands.tools.glob import GlobTool
+from openhands.tools.grep import GrepTool
 
 def truncate(s: str, max_len: int) -> str:
     """Truncate string with ellipsis if needed."""
@@ -34,7 +34,7 @@ def format_system_prompt(data: dict) -> str:
     text = text.replace("\n", " ")
     return f"SysPrompt src={source} {truncate(text, 60)}"
 
-def format_message(data: dict) -> str:
+def format_message(data: dict, truncate_text: bool=True) -> str:
     """MessageEvent: Show role and message content snippet."""
     msg = data.get("llm_message", {})
     role = msg.get("role", "?")
@@ -46,8 +46,11 @@ def format_message(data: dict) -> str:
             text = first.get("text", "")
         else:
             text = str(first)
-    text = text.replace("\n", " ")
-    return f"Message {role} {truncate(text, 70)}"
+    if truncate_text:
+        text = text.replace("\n", " ")
+        return f"Message {role} {truncate(text, 70)}"
+    else:
+        return f"Message {role}:\n{text}"
 
 def format_action(data: dict) -> str:
     """ActionEvent: Show tool name and action details."""
@@ -114,6 +117,25 @@ class MinimalVisualizer(ConversationVisualizerBase):
             print(format_unknown(type(event).__name__, event.model_dump()))
             print(f"\n\n[EVENT] {type(event).__name__}: {event.model_dump_json()[:200]}...")
 
+class InteractiveVisualizer(ConversationVisualizerBase):
+    """A minimal visualizer that print the raw events as they occur."""
+
+    def on_event(self, event: Event) -> None:
+        """Handle events for minimal progress visualization."""
+        if isinstance(event, MessageEvent):
+            if event.llm_message.role == 'user':
+                pass
+            else:
+                print(format_message(event.model_dump(), False))
+        elif isinstance(event, SystemPromptEvent):
+            print(format_system_prompt(event.model_dump()))
+        elif isinstance(event, ActionEvent):
+            print(format_action(event.model_dump()))
+        elif isinstance(event, ObservationEvent):
+            print(format_observation(event.model_dump()))
+        else:
+            print(format_unknown(type(event).__name__, event.model_dump()))
+            print(f"\n\n[EVENT] {type(event).__name__}: {event.model_dump_json()[:200]}...")
 
 def run_agent(llm: LLM, prompt: str):
     agent = Agent(
@@ -136,11 +158,10 @@ def run_agent(llm: LLM, prompt: str):
     conversation.run()
 
 
-llm = LLM(
-    model=os.getenv("LLM_MODEL", "anthropic/claude-sonnet-4-5-20250929"),
-    api_key=os.getenv("LLM_API_KEY"),
-    base_url=os.getenv("LLM_BASE_URL", None),
-)
+def ticket_help() -> str:
+    """Simple git checkout with minimal error handling."""
+    result = subprocess.run(['./ticket'], check=True, capture_output=True)
+    return str(result.stdout, "utf-8")
 
 def next_ticket() -> str:
     """Simple git checkout with minimal error handling."""
@@ -150,18 +171,99 @@ def next_ticket() -> str:
         return ""
     return str(lines[0], "utf-8").split()[0]
 
-for i in range(MAX_ITERATIONS):
-    ticket_id = next_ticket()
-    if not ticket_id:
-        print("No work on the hopper!")
-        break
-    ticket_file = f'.tickets/{ticket_id}.md'
-    print(f"═══ Iteration {i+1} ═══")
-    prompt = f"""
-    * Do only the task in `{ticket_file}`.
-    * Record your learnings with `./ticket add-note "..."`
-    * If complete use `./ticket close {ticket_id}` to mark it complete
-    * Commit progress if tests pass
-    * Commit .tickets updates if needed
-    """
-    run_agent(llm=llm, prompt=prompt)
+def parse_args():
+    parser = argparse.ArgumentParser(prog='hans', description='OpenHands powered code helper')
+    parser.add_argument('-i', '--interactive', action='store_true', help='Interactive (good for creating tickets)')
+    parser.add_argument('-n', '--num-iterations', default=10, help='Max times to call agent')
+    return parser.parse_args()
+
+def run_interactive(llm: LLM, args):
+    """An agent that takes user input and manages the tickets."""
+
+    agent = Agent(
+        llm=llm,
+        tools=[
+            Tool(name=TerminalTool.name),
+            Tool(name=GlobTool.name),
+            Tool(name=GrepTool.name),
+        ]
+    )
+
+    cwd = os.getcwd()
+    conversation = Conversation(
+        agent=agent,
+        workspace=cwd,
+        visualizer=InteractiveVisualizer(),
+    )
+
+    conversation.send_message(f"""
+        # Purpose
+        You are mainly here to help create tickets and manage the open ones.
+        Help gather context and scope out tasks for an agent to do autonomously.
+        # Constraints
+        Show me yout proposed tickets for confirmation before creating.
+        # CLI
+        Call this like `./ticket`
+
+        {ticket_help()}
+    """)
+    print("-" * 50)
+    while True:
+        try:
+            user_input = input("\nYou: ").strip()
+
+            if not user_input:
+                print("exit or go?")
+                continue
+
+            if user_input.lower() in ('quit', 'exit'):
+                print("Goodbye!")
+                break
+            if user_input.lower() == ('go'):
+                run_ticket_agent(llm, args)
+                return
+
+            conversation.send_message(user_input)
+            conversation.run()
+
+        except KeyboardInterrupt:
+            print("\nGoodbye!")
+            break
+        except EOFError:
+            print("\nGoodbye!")
+            break
+
+def run_ticket_agent(llm, args):
+    for i in range(args.num_iterations):
+        ticket_id = next_ticket()
+        if not ticket_id:
+            print("No work on the hopper! Try -i")
+            break
+        ticket_file = f'.tickets/{ticket_id}.md'
+        print(f"═══ Iteration {i+1} ═══")
+        prompt = f"""
+        * Do only the task in `{ticket_file}`.
+        * Record your learnings with `./ticket add-note "..."`
+        * If complete use `./ticket close {ticket_id}` to mark it complete
+        * Commit progress if tests pass
+        * Commit .tickets updates if needed
+        """
+        run_agent(llm=llm, prompt=prompt)
+
+def run():
+    llm = LLM(
+        model=os.getenv("LLM_MODEL", "anthropic/claude-sonnet-4-5-20250929"),
+        api_key=os.getenv("LLM_API_KEY"),
+        base_url=os.getenv("LLM_BASE_URL", None),
+    )
+    args = parse_args()
+
+    if args.interactive:
+        run_interactive(llm, args)
+        return
+
+
+
+
+print("🚀 Starting Hans")
+run()
