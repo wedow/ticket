@@ -105,6 +105,7 @@ Commands:
   add-note <id> [text]     Append timestamped note (or pipe via stdin)
   query [jq-filter]        Output tickets as JSON, optionally filtered
   migrate-beads            Import tickets from .beads/issues.jsonl
+  --version, -V            Print version
 
 Tickets stored as markdown files in .tickets/
 Supports partial ID matching (e.g., 'tk show 5c4' matches 'nw-5c46')

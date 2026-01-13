@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- `--version` / `-V` flag to print the current version
+
 ## [0.2.1]
 
 ### Added

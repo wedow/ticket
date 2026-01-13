@@ -119,6 +119,16 @@ jobs:
       #     git commit -m "Update to ${VERSION}"
       #     git push
 
+      - name: Validate script version matches tag
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          SCRIPT_VERSION=$(grep '^VERSION=' ticket | sed 's/VERSION="\(.*\)"/\1/')
+          if [[ "$VERSION" != "$SCRIPT_VERSION" ]]; then
+            echo "Error: Tag version ($VERSION) does not match script VERSION ($SCRIPT_VERSION)"
+            echo "Update VERSION in ticket script before tagging a release."
+            exit 1
+          fi
+
       - name: Update Nix derivation
         run: |
           VERSION=${{ steps.sha.outputs.version }}
