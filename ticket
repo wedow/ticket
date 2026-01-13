@@ -4,7 +4,7 @@ set -euo pipefail
 # ticket - minimal ticket system with dependency tracking
 # Stores markdown files with YAML frontmatter in .tickets/
 
-VERSION="0.2.1"
+VERSION="0.2.2"
 TICKETS_DIR=".tickets"
 
 # Prefer ripgrep if available, fall back to grep
