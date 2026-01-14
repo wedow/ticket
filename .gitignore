@@ -2,3 +2,8 @@
 .stakpak/session*
 
 tmp/
+acl2/.acl2/
+acl2/.sbcl/
+acl2/ticket/*.cert
+acl2/ticket/*.fasl
+acl2/ticket/*.port

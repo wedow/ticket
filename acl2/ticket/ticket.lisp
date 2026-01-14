@@ -1,5 +1,8 @@
 ; ticket.lisp - ACL2 implementation of ticket create command
-; This file is designed to be admitted by ACL2
+; This file is designed to be certified by ACL2
+;
+; To certify: (certify-book "ticket")
+; To use: (include-book "ticket")
 
 (in-package "ACL2")
 
