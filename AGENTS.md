@@ -20,12 +20,13 @@ Dependencies: bash, sed, awk, find. Optional: ripgrep (faster grep), jq (for que
 
 ### Language Ports
 
-Four additional implementations have been created:
+Five additional implementations have been created:
 
 1. **Python** (`python/ticket/`) - Using uv, pytest, ruff. Entry point: `./py_ticket.sh`
 2. **Go** (`go/ticket/`) - Using go modules. Entry point: `./go_ticket.sh`
 3. **TypeScript** (`typescript/ticket/`) - Using Bun. Entry point: `./ts_ticket.sh`
 4. **Zig** (`zig/ticket/`) - Native Zig. Entry point: `./zig_ticket.sh`
+5. **ACL2/Common Lisp** (`acl2/ticket/`) - Using SBCL. Entry point: `./acl2_ticket.sh` (WIP - only `create` implemented)
 
 Each implementation:
 - Follows the specification in `docs/SPEC.md`

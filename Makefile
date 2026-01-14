@@ -3,12 +3,14 @@
 .PHONY: zig zig-lint zig-type zig-test zig-bdd zig-check
 .PHONY: typescript typescript-lint typescript-type typescript-test typescript-bdd typescript-check
 .PHONY: c c-build c-test c-check c-lint c-format c-clean c-bdd
+.PHONY: acl2 acl2-check acl2-lint acl2-test acl2-bdd
 
 PYTHON_DIR := python/ticket
 GO_DIR := go/ticket
 ZIG_DIR := zig/ticket
 TYPESCRIPT_DIR := typescript/ticket
 C_DIR := c/ticket
+ACL2_DIR := acl2/ticket
 
 python: python-check
 
@@ -125,3 +127,25 @@ c-clean:
 c-bdd:
 	@echo "Running C BDD tests..."
 	bash c/bdd.sh
+
+acl2: acl2-check
+
+acl2-check: acl2-lint acl2-test
+
+acl2-lint:
+	@echo "Checking ACL2/Lisp syntax..."
+	@command -v sbcl >/dev/null 2>&1 || { echo "Error: sbcl not installed"; exit 1; }
+	cd $(ACL2_DIR) && sbcl --noinform --non-interactive \
+		--load src/package.lisp \
+		--load src/utils.lisp \
+		--load src/create.lisp \
+		--load src/cli.lisp \
+		--eval "(quit)"
+
+acl2-test:
+	@echo "Running ACL2/Lisp tests..."
+	@echo "Note: No unit tests implemented yet"
+
+acl2-bdd:
+	@echo "Running ACL2 BDD tests..."
+	bash acl2/bdd.sh
