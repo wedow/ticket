@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Clarified `--parent` flag documentation: advisory metadata for epic/subtask hierarchy, not a blocking dependency
+
 ## [0.2.2] - 2026-01-13
 
 ### Added
