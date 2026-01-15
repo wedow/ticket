@@ -57,7 +57,7 @@ ensure_dir() {
     mkdir -p "$TICKETS_DIR"
 }
 
-# Get ticket file path (supports partial ID matching)
+# Get ticket file path (supports partial ID matching, searches subdirs)
 ticket_path() {
     local id="$1"
     local exact="$TICKETS_DIR/${id}.md"
@@ -67,9 +67,9 @@ ticket_path() {
         return 0
     fi
 
-    # Try partial match (anywhere in filename)
+    # Try partial match in root and subdirectories
     local matches
-    matches=$(find "$TICKETS_DIR" -maxdepth 1 -name "*${id}*.md" 2>/dev/null | head -2)
+    matches=$(find "$TICKETS_DIR" -name "*${id}*.md" ! -name "_index.md" 2>/dev/null | head -3)
     local count
     count=$(echo "$matches" | _grep -c . || true)
 
@@ -77,7 +77,8 @@ ticket_path() {
         echo "$matches"
         return 0
     elif [[ "$count" -gt 1 ]]; then
-        echo "Error: ambiguous ID '$id' matches multiple tickets" >&2
+        echo "Error: ambiguous ID '$id' matches multiple tickets:" >&2
+        echo "$matches" | sed 's/.*\//  /' >&2
         return 1
     else
         echo "Error: ticket '$id' not found" >&2
@@ -111,8 +112,8 @@ ${field}: ${value}
 cmd_create() {
     ensure_dir
 
-    local title="" description="" design="" acceptance=""
-    local priority=2 issue_type="task" assignee="" external_ref="" parent="" tags=""
+    local title="" description="" design="" acceptance="" custom_id=""
+    local priority=2 issue_type="task" assignee="" external_ref="" parent="" tags="" dir=""
 
     # Default assignee to git user.name if available
     assignee=$(git config user.name 2>/dev/null || true)
@@ -129,6 +130,8 @@ cmd_create() {
             --external-ref) external_ref="$2"; shift 2 ;;
             --parent) parent="$2"; shift 2 ;;
             --tags) tags="$2"; shift 2 ;;
+            --id) custom_id="$2"; shift 2 ;;
+            --dir) dir="$2"; shift 2 ;;
             -*) echo "Unknown option: $1" >&2; return 1 ;;
             *) title="$1"; shift ;;
         esac
@@ -136,8 +139,18 @@ cmd_create() {
 
     title="${title:-Untitled}"
     local id
-    id=$(generate_id)
-    local file="$TICKETS_DIR/${id}.md"
+    id="${custom_id:-$(generate_id)}"
+
+    # Determine file path - dir tickets go in subdirectory (auto-create if needed)
+    local file
+    if [[ -n "$dir" ]]; then
+        local dir_path="$TICKETS_DIR/$dir"
+        mkdir -p "$dir_path"
+        file="$dir_path/${id}.md"
+    else
+        file="$TICKETS_DIR/${id}.md"
+    fi
+
     local now
     now=$(_iso_date)
 
@@ -153,6 +166,7 @@ cmd_create() {
         [[ -n "$assignee" ]] && echo "assignee: $assignee"
         [[ -n "$external_ref" ]] && echo "external-ref: $external_ref"
         [[ -n "$parent" ]] && echo "parent: $parent"
+        [[ -n "$dir" ]] && echo "dir: $dir"
         if [[ -n "$tags" ]]; then
             echo "tags: [${tags//,/, }]"
         fi
@@ -600,7 +614,7 @@ cmd_dep() {
 cmd_ls() {
     [[ ! -d "$TICKETS_DIR" ]] && return 0
 
-    local status_filter="" assignee_filter="" tag_filter=""
+    local status_filter="" assignee_filter="" tag_filter="" dir_filter="" summary_mode=0
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --status=*) status_filter="${1#--status=}"; shift ;;
@@ -608,59 +622,154 @@ cmd_ls() {
             --assignee=*) assignee_filter="${1#--assignee=}"; shift ;;
             -T) tag_filter="$2"; shift 2 ;;
             --tag=*) tag_filter="${1#--tag=}"; shift ;;
+            --dir) dir_filter="$2"; shift 2 ;;
+            --dir=*) dir_filter="${1#--dir=}"; shift ;;
+            --summary) summary_mode=1; shift ;;
             *) shift ;;
         esac
     done
 
-    awk -v status_filter="$status_filter" -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" '
-    BEGIN { FS=": "; in_front=0 }
-    FNR==1 {
-        if (prev_file) emit()
-        id=""; status=""; title=""; deps=""; assignee=""; tags=""; in_front=0
-        prev_file=FILENAME
-    }
-    /^---$/ { in_front = !in_front; next }
-    in_front && /^id:/ { id = $2 }
-    in_front && /^status:/ { status = $2 }
-    in_front && /^assignee:/ { assignee = $2 }
-    in_front && /^tags:/ { tags = $2; gsub(/[\[\] ]/, "", tags) }
-    in_front && /^deps:/ {
-        deps = $2
-        gsub(/[\[\] ]/, "", deps)
-    }
-    !in_front && /^# / && title == "" { title = substr($0, 3) }
-    END { if (prev_file) emit() }
-    function has_tag(tags_str, tag,    i, n, arr) {
-        n = split(tags_str, arr, ",")
-        for (i = 1; i <= n; i++) if (arr[i] == tag) return 1
-        return 0
-    }
-    function emit() {
-        if (id != "" && (status_filter == "" || status == status_filter) && (assignee_filter == "" || assignee == assignee_filter) && (tag_filter == "" || has_tag(tags, tag_filter))) {
-            deps_display = (deps != "") ? "[" deps "]" : "[]"
-            gsub(/,/, ", ", deps_display)
-            dep_str = (deps_display != "[]") ? " <- " deps_display : ""
-            printf "%-8s [%s] - %s%s\n", id, status, title, dep_str
+    # Build file list - search root and subdirs
+    local files
+    if [[ -n "$dir_filter" ]]; then
+        files=$(find "$TICKETS_DIR/$dir_filter" -maxdepth 1 -name "*.md" 2>/dev/null)
+    else
+        files=$(find "$TICKETS_DIR" -name "*.md" 2>/dev/null)
+    fi
+    [[ -z "$files" ]] && return 0
+
+    if [[ $summary_mode -eq 1 ]]; then
+        # Summary mode - show directory stats (sorted by most recent activity)
+        # Get file list with modification times
+        local file_times
+        file_times=$(echo "$files" | xargs stat -f "%m %N" 2>/dev/null || echo "$files" | xargs stat -c "%Y %n" 2>/dev/null)
+
+        echo "$file_times" | awk -v tickets_dir="$TICKETS_DIR" '
+        BEGIN { FS=": "; in_front=0 }
+        # First pass: read stat output to get file mtimes
+        NF >= 2 && $1 ~ /^[0-9]+$/ {
+            mtime = $1
+            # Reconstruct filename (may have spaces)
+            fname = substr($0, index($0, " ") + 1)
+            file_mtime[fname] = mtime
+            next
         }
-    }
-    ' "$TICKETS_DIR"/*.md 2>/dev/null
+        # Second pass: process ticket files
+        FNR==1 {
+            if (prev_file) store()
+            id=""; status=""; dir_name=""; in_front=0
+            prev_file=FILENAME
+        }
+        /^---$/ { in_front = !in_front; next }
+        in_front && /^id:/ { id = $2 }
+        in_front && /^status:/ { status = $2 }
+        in_front && /^dir:/ { dir_name = $2 }
+        function store() {
+            if (id == "") return
+            # Determine directory from file path or dir field
+            if (dir_name == "") {
+                n = split(prev_file, parts, "/")
+                if (n > 2) {
+                    parent = parts[n-1]
+                    if (parent != ".tickets") dir_name = parent
+                }
+            }
+            if (dir_name == "") dir_name = "(root)"
+
+            total[dir_name]++
+            if (status == "closed") closed[dir_name]++
+            if (status == "open") open[dir_name]++
+            if (status == "in_progress") progress[dir_name]++
+
+            # Track most recent mtime per dir
+            mt = file_mtime[prev_file]+0
+            if (mt > dir_mtime[dir_name]) dir_mtime[dir_name] = mt
+        }
+        END {
+            if (prev_file) store()
+            # Sort by mtime descending (most recent first)
+            n = 0
+            for (d in total) dirs[++n] = d
+            for (i = 1; i <= n; i++) {
+                for (j = i + 1; j <= n; j++) {
+                    if (dir_mtime[dirs[i]] < dir_mtime[dirs[j]]) {
+                        tmp = dirs[i]; dirs[i] = dirs[j]; dirs[j] = tmp
+                    }
+                }
+            }
+            for (i = 1; i <= n; i++) {
+                d = dirs[i]
+                t = total[d]; c = closed[d]+0; o = open[d]+0; p = progress[d]+0
+                pct = (t > 0) ? int(c * 100 / t) : 0
+                printf "%-20s %d/%d (%d%%)  [%d open, %d in progress]\n", d, c, t, pct, o, p
+            }
+        }
+        ' - $files
+    else
+        # Normal list mode
+        echo "$files" | xargs awk -v status_filter="$status_filter" -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" '
+        BEGIN { FS=": "; in_front=0 }
+        FNR==1 {
+            if (prev_file) emit()
+            id=""; status=""; title=""; deps=""; assignee=""; tags=""; dir=""; in_front=0
+            prev_file=FILENAME
+        }
+        /^---$/ { in_front = !in_front; next }
+        in_front && /^id:/ { id = $2 }
+        in_front && /^status:/ { status = $2 }
+        in_front && /^assignee:/ { assignee = $2 }
+        in_front && /^dir:/ { dir = $2 }
+        in_front && /^tags:/ { tags = $2; gsub(/[\[\] ]/, "", tags) }
+        in_front && /^deps:/ {
+            deps = $2
+            gsub(/[\[\] ]/, "", deps)
+        }
+        !in_front && /^# / && title == "" { title = substr($0, 3) }
+        END { if (prev_file) emit() }
+        function has_tag(tags_str, tag,    i, n, arr) {
+            n = split(tags_str, arr, ",")
+            for (i = 1; i <= n; i++) if (arr[i] == tag) return 1
+            return 0
+        }
+        function emit() {
+            if (id != "" && (status_filter == "" || status == status_filter) && (assignee_filter == "" || assignee == assignee_filter) && (tag_filter == "" || has_tag(tags, tag_filter))) {
+                deps_display = (deps != "") ? "[" deps "]" : "[]"
+                gsub(/,/, ", ", deps_display)
+                dep_str = (deps_display != "[]") ? " <- " deps_display : ""
+                dir_str = (dir != "") ? " @" dir : ""
+                printf "%-12s [%s] - %s%s%s\n", id, status, title, dep_str, dir_str
+            }
+        }
+        '
+    fi
 }
 
 cmd_ready() {
     [[ ! -d "$TICKETS_DIR" ]] && return 0
 
-    local assignee_filter="" tag_filter=""
+    local assignee_filter="" tag_filter="" dir_filter=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -a) assignee_filter="$2"; shift 2 ;;
             --assignee=*) assignee_filter="${1#--assignee=}"; shift ;;
             -T) tag_filter="$2"; shift 2 ;;
             --tag=*) tag_filter="${1#--tag=}"; shift ;;
+            --dir) dir_filter="$2"; shift 2 ;;
+            --dir=*) dir_filter="${1#--dir=}"; shift ;;
             *) shift ;;
         esac
     done
 
-    awk -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" '
+    # Build file list - search root and subdirs
+    local files
+    if [[ -n "$dir_filter" ]]; then
+        files=$(find "$TICKETS_DIR/$dir_filter" -maxdepth 1 -name "*.md" 2>/dev/null)
+    else
+        files=$(find "$TICKETS_DIR" -name "*.md" 2>/dev/null)
+    fi
+    [[ -z "$files" ]] && return 0
+
+    echo "$files" | xargs awk -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" '
     BEGIN { FS=": "; in_front=0 }
     FNR==1 {
         if (prev_file) store()
@@ -732,10 +841,10 @@ cmd_ready() {
 
         for (i = 1; i <= count; i++) {
             split(output[i], f, "|")
-            printf "%-8s [P%s][%s] - %s\n", f[2], f[1], f[3], f[4]
+            printf "%-12s [P%s][%s] - %s\n", f[2], f[1], f[3], f[4]
         }
     }
-    ' "$TICKETS_DIR"/*.md 2>/dev/null
+    '
 }
 
 cmd_closed() {
@@ -1390,6 +1499,8 @@ Commands:
     -a, --assignee         Assignee
     --external-ref         External reference (e.g., gh-123, JIRA-456)
     --parent               Parent ticket ID
+    --id                   Custom ticket ID (default: auto-generated)
+    --dir                  Put ticket in directory (auto-creates if needed)
     --tags                 Comma-separated tags (e.g., --tags ui,backend,urgent)
   start <id>               Set status to in_progress
   close <id>               Set status to closed
@@ -1401,17 +1512,20 @@ Commands:
   undep <id> <dep-id>      Remove dependency
   link <id> <id> [id...]   Link tickets together (symmetric)
   unlink <id> <target-id>  Remove link between tickets
-  ls [--status=X] [-a X] [-T X]   List tickets
-  ready [-a X] [-T X]      List open/in-progress tickets with deps resolved
-  blocked [-a X] [-T X]    List open/in-progress tickets with unresolved deps
-  closed [--limit=N] [-a X] [-T X] List recently closed tickets (default 20, by mtime)
+  ls [options]             List tickets
+    --status=X             Filter by status
+    --dir X                Filter by directory
+    --summary              Show directory progress summary
+    -a X, -T X             Filter by assignee/tag
+  ready [--dir X]          List ready tickets (deps resolved)
+  blocked                  List blocked tickets
+  closed [--limit=N]       List recently closed tickets
   show <id>                Display ticket
   edit <id>                Open ticket in \$EDITOR
-  add-note <id> [text]     Append timestamped note (or pipe via stdin)
-  query [jq-filter]        Output tickets as JSON, optionally filtered
-  migrate-beads            Import tickets from .beads/issues.jsonl
+  add-note <id> [text]     Append timestamped note
+  query [jq-filter]        Output tickets as JSON
 
-Tickets stored as markdown files in .tickets/
+Tickets stored in .tickets/ (use --dir to organize into subdirectories)
 Supports partial ID matching (e.g., '$cmd show 5c4' matches 'nw-5c46')
 EOF
 }
