@@ -102,10 +102,80 @@ update_yaml_field() {
         _sed_i "$file" "s/^${field}:.*/${field}: ${value}/"
     else
         # Insert after first --- (beginning of frontmatter)
-        _sed_i "$file" "0,/^---$/ { /^---$/a\\
-${field}: ${value}
-}"
+        awk -v field="$field" -v value="$value" '
+        /^---$/ && !inserted { print; print field ": " value; inserted=1; next }
+        { print }
+        ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
     fi
+}
+
+# Update the markdown title (# Title line after frontmatter)
+update_title() {
+    local file="$1"
+    local new_title="$2"
+
+    awk -v title="$new_title" '
+    /^---$/ { front++; print; next }
+    front == 2 && /^# / && !done { print "# " title; done=1; next }
+    { print }
+    ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+}
+
+# Update or create a markdown section (## Heading)
+update_section() {
+    local file="$1"
+    local heading="$2"
+    local content="$3"
+
+    awk -v heading="$heading" -v content="$content" '
+    BEGIN { in_section=0; found=0 }
+    /^## / {
+        if (in_section) { in_section=0 }
+        if ($0 == "## " heading) {
+            print
+            print ""
+            print content
+            print ""
+            in_section=1
+            found=1
+            next
+        }
+    }
+    in_section && /^##/ { in_section=0 }
+    !in_section { print }
+    END {
+        if (!found) {
+            print ""
+            print "## " heading
+            print ""
+            print content
+            print ""
+        }
+    }
+    ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+}
+
+# Update description (text between # Title and first ## section)
+update_description() {
+    local file="$1"
+    local content="$2"
+
+    awk -v content="$content" '
+    BEGIN { front=0; past_title=0; in_desc=0; printed_desc=0 }
+    /^---$/ { front++; print; next }
+    front == 2 && /^# / && !past_title {
+        print
+        print ""
+        if (content != "") { print content; print "" }
+        printed_desc=1
+        past_title=1
+        in_desc=1
+        next
+    }
+    in_desc && /^##/ { in_desc=0; print; next }
+    in_desc { next }
+    { print }
+    ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
 }
 
 cmd_create() {
@@ -1243,18 +1313,63 @@ cmd_add_note() {
 
 cmd_edit() {
     if [[ $# -lt 1 ]]; then
-        echo "Usage: ticket edit <id>" >&2
+        echo "Usage: $(basename "$0") edit <id> [options]" >&2
+        echo "Options: --title, -d/--description, --design, --acceptance," >&2
+        echo "         -t/--type, -p/--priority, -a/--assignee," >&2
+        echo "         --external-ref, --parent, --tags" >&2
         return 1
     fi
 
-    local file
-    file=$(ticket_path "$1") || return 1
+    local id="$1"
+    shift
 
-    if [ -t 0 ] && [ -t 1 ]; then
-        "${EDITOR:-vi}" "$file"
-    else
-        echo "Edit ticket file: $file"
+    local file
+    file=$(ticket_path "$id") || return 1
+
+    if [[ $# -eq 0 ]]; then
+        echo "Usage: $(basename "$0") edit <id> [options]" >&2
+        echo "Options: --title, -d/--description, --design, --acceptance," >&2
+        echo "         -t/--type, -p/--priority, -a/--assignee," >&2
+        echo "         --external-ref, --parent, --tags" >&2
+        return 1
     fi
+
+    local title="" description="" design="" acceptance=""
+    local priority="" issue_type="" assignee="" external_ref="" parent="" tags=""
+    local has_title=0 has_desc=0 has_design=0 has_accept=0
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --title) title="$2"; has_title=1; shift 2 ;;
+            -d|--description) description="$2"; has_desc=1; shift 2 ;;
+            --design) design="$2"; has_design=1; shift 2 ;;
+            --acceptance) acceptance="$2"; has_accept=1; shift 2 ;;
+            -p|--priority) priority="$2"; shift 2 ;;
+            -t|--type) issue_type="$2"; shift 2 ;;
+            -a|--assignee) assignee="$2"; shift 2 ;;
+            --external-ref) external_ref="$2"; shift 2 ;;
+            --parent) parent="$2"; shift 2 ;;
+            --tags) tags="$2"; shift 2 ;;
+            -*) echo "Unknown option: $1" >&2; return 1 ;;
+            *) echo "Unexpected argument: $1" >&2; return 1 ;;
+        esac
+    done
+
+    # Update YAML fields
+    [[ -n "$priority" ]] && update_yaml_field "$file" "priority" "$priority"
+    [[ -n "$issue_type" ]] && update_yaml_field "$file" "type" "$issue_type"
+    [[ -n "$assignee" ]] && update_yaml_field "$file" "assignee" "$assignee"
+    [[ -n "$external_ref" ]] && update_yaml_field "$file" "external-ref" "$external_ref"
+    [[ -n "$parent" ]] && update_yaml_field "$file" "parent" "$parent"
+    [[ -n "$tags" ]] && update_yaml_field "$file" "tags" "[${tags//,/, }]"
+
+    # Update markdown content
+    [[ $has_title -eq 1 ]] && update_title "$file" "$title"
+    [[ $has_desc -eq 1 ]] && update_description "$file" "$description"
+    [[ $has_design -eq 1 ]] && update_section "$file" "Design" "$design"
+    [[ $has_accept -eq 1 ]] && update_section "$file" "Acceptance Criteria" "$acceptance"
+
+    echo "Updated $(basename "$file" .md)"
 }
 
 cmd_query() {
@@ -1406,7 +1521,17 @@ Commands:
   blocked [-a X] [-T X]    List open/in-progress tickets with unresolved deps
   closed [--limit=N] [-a X] [-T X] List recently closed tickets (default 20, by mtime)
   show <id>                Display ticket
-  edit <id>                Open ticket in \$EDITOR
+  edit <id> [options]      Update ticket fields
+    --title                New title
+    -d, --description      Description text
+    --design               Design notes
+    --acceptance           Acceptance criteria
+    -t, --type             Type (bug|feature|task|epic|chore)
+    -p, --priority         Priority 0-4
+    -a, --assignee         Assignee
+    --external-ref         External reference
+    --parent               Parent ticket ID
+    --tags                 Comma-separated tags
   add-note <id> [text]     Append timestamped note (or pipe via stdin)
   query [jq-filter]        Output tickets as JSON, optionally filtered
   migrate-beads            Import tickets from .beads/issues.jsonl

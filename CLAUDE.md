@@ -2,20 +2,37 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-See @README.md for usage documentation. Run `tk help` for command reference. Always update the README.md usage content when adding/changing commands and flags.
+Run `tk help` for command reference. When adding/changing commands or flags, update:
+1. The `cmd_help()` function in `ticket`
+2. The Usage section in `README.md`
 
 ## Architecture
 
-Single-file bash implementation (~900 lines). Uses awk for performant bulk operations on large ticket sets.
+Single-file bash implementation (`ticket`, ~1400 lines). Uses awk for performant bulk operations on large ticket sets.
 
 Key functions:
 - `generate_id()` - Creates IDs from directory name prefix + timestamp hash
 - `ticket_path()` - Resolves partial IDs to full file paths
 - `yaml_field()` / `update_yaml_field()` - YAML frontmatter manipulation via sed
-- `cmd_*()` - Command handlers
+- `cmd_*()` - Command handlers (dispatch at bottom of file)
 - `cmd_ready()`, `cmd_blocked()`, `cmd_ls()` - awk-based bulk listing with sorting
 
+Tickets are markdown files with YAML frontmatter in `.tickets/` (configurable via `TICKETS_DIR` env var). Core YAML fields: `id`, `status`, `deps`, `links`, `created`, `type`, `priority`, `assignee`, `parent`, `tags`.
+
 Dependencies: bash, sed, awk, find. Optional: ripgrep (faster grep), jq (for query command).
+
+## Testing
+
+No formal test suite. Manual testing workflow:
+```bash
+# Create test tickets
+tk create "Test ticket" -d "Description"
+
+# Verify commands
+tk ls
+tk ready
+tk blocked
+```
 
 ## Changelog
 

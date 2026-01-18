@@ -10,6 +10,12 @@
 - `--tags` flag for `create` command to add comma-separated tags
 - `-T, --tag` filter flag for `ls`, `ready`, `blocked`, and `closed` commands
 
+### Changed
+- `edit` command now uses CLI flags instead of opening $EDITOR
+
+### Fixed
+- `update_yaml_field` now works on BSD/macOS (was using GNU sed syntax)
+
 ## [0.2.0] - 2026-01-04
 
 ### Added
