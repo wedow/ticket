@@ -5,6 +5,9 @@
 ### Added
 - `list` command alias for `ls`
 
+### Changed
+- Walk parent directories to find `.tickets/` directory, enabling commands from any subdirectory
+
 ### Fixed
 - `dep` command now resolves partial IDs for the dependency argument
 - `undep` command now resolves partial IDs and validates dependency exists
