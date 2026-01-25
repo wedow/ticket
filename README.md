@@ -78,7 +78,7 @@ tk - minimal ticket system with dependency tracking
 Usage: tk <command> [args]
 
 Commands:
-  create [title] [options] Create ticket, prints ID
+  create [title] [options] Create ticket (interactive if no title)
     -d, --description      Description text
     --design               Design notes
     --acceptance           Acceptance criteria
@@ -99,7 +99,7 @@ Commands:
   undep <id> <dep-id>      Remove dependency
   link <id> <id> [id...]   Link tickets together (symmetric)
   unlink <id> <target-id>  Remove link between tickets
-  ls [--status=X] [-a X] [-T X] [-P X]  List tickets (--priority=P0 or -P 0)
+  ls [--status=X] [-a X] [-T X] [-P X] [-t X]  List tickets
   ready [-a X] [-T X]      List open/in-progress tickets with deps resolved
   blocked [-a X] [-T X]    List open/in-progress tickets with unresolved deps
   closed [--limit=N] [-a X] [-T X] List recently closed tickets (default 20, by mtime)

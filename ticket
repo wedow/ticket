@@ -204,7 +204,29 @@ cmd_create() {
         esac
     done
 
-    title="${title:-Untitled}"
+    # Interactive mode if no title provided
+    if [[ -z "$title" && -t 0 ]]; then
+        read -r -p "Title: " title
+        if [[ -z "$description" ]]; then
+            read -r -p "Description (optional): " description
+        fi
+        if [[ "$priority" == "2" ]]; then
+            read -r -p "Priority [0-4] (default 2): " input_priority
+            [[ -n "$input_priority" ]] && priority="$input_priority"
+        fi
+        if [[ "$issue_type" == "task" ]]; then
+            read -r -p "Type [task/epic/bug] (default task): " input_type
+            [[ -n "$input_type" ]] && issue_type="$input_type"
+        fi
+        if [[ -z "$tags" ]]; then
+            read -r -p "Tags (comma-separated, optional): " tags
+        fi
+    fi
+
+    if [[ -z "$title" ]]; then
+        echo "Error: title is required" >&2
+        return 1
+    fi
     validate_priority "$priority" || return 1
 
     local id
@@ -249,7 +271,7 @@ cmd_create() {
         fi
     } > "$file"
 
-    echo "$id"
+    cmd_show "$id"
 }
 
 # Valid statuses
@@ -700,7 +722,7 @@ cmd_dep() {
 cmd_ls() {
     [[ ! -d "$TICKETS_DIR" ]] && return 0
 
-    local status_filter="" assignee_filter="" tag_filter="" priority_filter=""
+    local status_filter="" assignee_filter="" tag_filter="" priority_filter="" type_filter=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --status=*) status_filter="${1#--status=}"; shift ;;
@@ -710,6 +732,8 @@ cmd_ls() {
             --tag=*) tag_filter="${1#--tag=}"; shift ;;
             -P) priority_filter="$2"; shift 2 ;;
             --priority=*) priority_filter="${1#--priority=}"; shift ;;
+            -t) type_filter="$2"; shift 2 ;;
+            --type=*) type_filter="${1#--type=}"; shift ;;
             *) shift ;;
         esac
     done
@@ -717,17 +741,18 @@ cmd_ls() {
     # Normalize priority filter (strip leading P if present)
     priority_filter="${priority_filter#P}"
 
-    awk -v status_filter="$status_filter" -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" -v priority_filter="$priority_filter" '
+    awk -v status_filter="$status_filter" -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" -v priority_filter="$priority_filter" -v type_filter="$type_filter" '
     BEGIN { FS=": "; in_front=0 }
     FNR==1 {
         if (prev_file) emit()
-        id=""; status=""; title=""; deps=""; assignee=""; tags=""; priority=""; in_front=0
+        id=""; status=""; title=""; deps=""; assignee=""; tags=""; priority=""; ticket_type=""; in_front=0
         prev_file=FILENAME
     }
     /^---$/ { in_front = !in_front; next }
     in_front && /^id:/ { id = $2 }
     in_front && /^status:/ { status = $2 }
     in_front && /^priority:/ { priority = $2 }
+    in_front && /^type:/ { ticket_type = $2 }
     in_front && /^assignee:/ { assignee = $2 }
     in_front && /^tags:/ { tags = $2; gsub(/[\[\] ]/, "", tags) }
     in_front && /^deps:/ {
@@ -742,7 +767,7 @@ cmd_ls() {
         return 0
     }
     function emit() {
-        if (id != "" && (status_filter == "" || status == status_filter) && (assignee_filter == "" || assignee == assignee_filter) && (tag_filter == "" || has_tag(tags, tag_filter)) && (priority_filter == "" || priority == priority_filter)) {
+        if (id != "" && (status_filter == "" || status == status_filter) && (assignee_filter == "" || assignee == assignee_filter) && (tag_filter == "" || has_tag(tags, tag_filter)) && (priority_filter == "" || priority == priority_filter) && (type_filter == "" || ticket_type == type_filter)) {
             deps_display = (deps != "") ? "[" deps "]" : "[]"
             gsub(/,/, ", ", deps_display)
             dep_str = (deps_display != "[]") ? " <- " deps_display : ""
@@ -1536,7 +1561,7 @@ $cmd - minimal ticket system with dependency tracking
 Usage: $cmd <command> [args]
 
 Commands:
-  create [title] [options] Create ticket, prints ID
+  create [title] [options] Create ticket (interactive if no title)
     -d, --description      Description text
     --design               Design notes
     --acceptance           Acceptance criteria
@@ -1557,7 +1582,7 @@ Commands:
   undep <id> <dep-id>      Remove dependency
   link <id> <id> [id...]   Link tickets together (symmetric)
   unlink <id> <target-id>  Remove link between tickets
-  ls [--status=X] [-a X] [-T X] [-P X]  List tickets (--priority=P0 or -P 0)
+  ls [--status=X] [-a X] [-T X] [-P X] [-t X]  List tickets
   ready [-a X] [-T X]      List open/in-progress tickets with deps resolved
   blocked [-a X] [-T X]    List open/in-progress tickets with unresolved deps
   closed [--limit=N] [-a X] [-T X] List recently closed tickets (default 20, by mtime)

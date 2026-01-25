@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- `-t, --type` filter flag for `ls` command
+- Interactive prompts when `tk create` is run with no arguments
 - Support `TICKETS_DIR` environment variable for custom tickets directory location
 - `dep cycle` command to detect dependency cycles in open tickets
 - `add-note` command for appending timestamped notes to tickets
@@ -13,6 +15,7 @@
 - `delete` command to remove ticket files
 
 ### Changed
+- `create` command now displays full ticket details on success instead of just the ID
 - `edit` command now uses CLI flags instead of opening $EDITOR
 
 ### Fixed
