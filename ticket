@@ -931,7 +931,7 @@ cmd_ls() {
                 color = ""
             }
 
-            printf "%-8s  %s  %-10s  %s%-13s%s  %s%s\n", id, p, ttype, color, status, reset, title, dep_str
+            printf "%-8s  P%s  %-10s  %s%-13s%s  %s%s\n", id, p, ttype, color, status, reset, title, dep_str
         }
     }
     ' "$TICKETS_DIR"/*.md 2>/dev/null
