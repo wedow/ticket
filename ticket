@@ -911,11 +911,11 @@ cmd_ls() {
                     if (last_group != "") print ""
                     header_color = use_color ? "\033[1m" : ""
                     printf "%s=== %s ===%s\n", header_color, group_name(grp_val, group_by), reset_all
-                    printf "%s%-8s  %s  %-10s  %-13s  %s%s\n", dim, "ID", "P", "TYPE", "STATUS", "TITLE", reset_all
+                    printf "%s%-8s  %-2s  %-10s  %-13s  %s%s\n", dim, "ID", "P", "TYPE", "STATUS", "TITLE", reset_all
                     last_group = grp_val
                 }
             } else if (!header_printed) {
-                printf "%s%-8s  %s  %-10s  %-13s  %s%s\n", dim, "ID", "P", "TYPE", "STATUS", "TITLE", reset_all
+                printf "%s%-8s  %-2s  %-10s  %-13s  %s%s\n", dim, "ID", "P", "TYPE", "STATUS", "TITLE", reset_all
                 header_printed = 1
             }
 
