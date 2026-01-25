@@ -729,9 +729,10 @@ cmd_dep() {
 cmd_ls() {
     [[ ! -d "$TICKETS_DIR" ]] && return 0
 
-    local status_filter="" assignee_filter="" tag_filter="" priority_filter="" type_filter=""
+    local status_filter="" assignee_filter="" tag_filter="" priority_filter="" type_filter="" group_mode=0
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --group) group_mode=1; shift ;;
             --status=*) status_filter="${1#--status=}"; shift ;;
             -a) assignee_filter="$2"; shift 2 ;;
             --assignee=*) assignee_filter="${1#--assignee=}"; shift ;;
@@ -753,7 +754,7 @@ cmd_ls() {
     [[ -n "${NO_COLOR:-}" ]] && use_color=0
     [[ ! -t 1 ]] && use_color=0
 
-    awk -v status_filter="$status_filter" -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" -v priority_filter="$priority_filter" -v type_filter="$type_filter" -v use_color="$use_color" '
+    awk -v status_filter="$status_filter" -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" -v priority_filter="$priority_filter" -v type_filter="$type_filter" -v use_color="$use_color" -v group_mode="$group_mode" '
     BEGIN { FS=": "; in_front=0 }
     FNR==1 {
         if (prev_file) store()
@@ -777,6 +778,43 @@ cmd_ls() {
         for (i = 1; i <= n; i++) if (arr[i] == tag) return 1
         return 0
     }
+    function store() {
+        if (id == "") return
+        # Always store for dep resolution
+        all_status[id] = status
+        all_deps[id] = deps
+        all_priority[id] = (priority != "") ? priority : 2
+        all_title[id] = title
+        all_assignee[id] = assignee
+        all_tags[id] = tags
+        all_type[id] = ticket_type
+    }
+    function deps_resolved(ticket_id,    d, n, arr, i) {
+        d = all_deps[ticket_id]
+        if (d == "") return 1
+        n = split(d, arr, ",")
+        for (i = 1; i <= n; i++) {
+            if (arr[i] != "" && all_status[arr[i]] != "closed") return 0
+        }
+        return 1
+    }
+    function workflow_group(ticket_id,    s) {
+        s = all_status[ticket_id]
+        if (s == "in_progress") return 1
+        if (s == "open" && deps_resolved(ticket_id)) return 2
+        if (s == "open") return 3
+        if (s == "needs_testing") return 4
+        if (s == "closed") return 5
+        return 6
+    }
+    function group_name(g) {
+        if (g == 1) return "In Progress"
+        if (g == 2) return "Ready"
+        if (g == 3) return "Blocked"
+        if (g == 4) return "Needs Testing"
+        if (g == 5) return "Closed"
+        return "Other"
+    }
     function status_order(s) {
         if (s == "in_progress") return 1
         if (s == "open") return 2
@@ -784,19 +822,34 @@ cmd_ls() {
         if (s == "closed") return 4
         return 5
     }
-    function store() {
-        if (id != "" && (status_filter == "" || status == status_filter) && (assignee_filter == "" || assignee == assignee_filter) && (tag_filter == "" || has_tag(tags, tag_filter)) && (priority_filter == "" || priority == priority_filter) && (type_filter == "" || ticket_type == type_filter)) {
-            count++
-            p = (priority != "") ? priority : 2
-            dep_str = (deps != "") ? " <- [" deps "]" : ""
-            gsub(/,/, ", ", dep_str)
-            # Sort key: status_order (1 digit) + priority (1 digit) + id
-            sort_key = status_order(status) "" p "" id
-            data[count] = sort_key "|" id "|" p "|" status "|" title "|" dep_str
-        }
-    }
     END {
         if (prev_file) store()
+
+        # Filter and build output array
+        count = 0
+        for (id in all_status) {
+            status = all_status[id]
+            if (status_filter != "" && status != status_filter) continue
+            if (assignee_filter != "" && all_assignee[id] != assignee_filter) continue
+            if (tag_filter != "" && !has_tag(all_tags[id], tag_filter)) continue
+            if (priority_filter != "" && all_priority[id] != priority_filter) continue
+            if (type_filter != "" && all_type[id] != type_filter) continue
+
+            count++
+            p = all_priority[id]
+            deps = all_deps[id]
+            dep_str = (deps != "") ? " <- [" deps "]" : ""
+            gsub(/,/, ", ", dep_str)
+
+            if (group_mode) {
+                grp = workflow_group(id)
+                sort_key = grp "" p "" id
+            } else {
+                sort_key = status_order(status) "" p "" id
+            }
+            data[count] = sort_key "|" id "|" p "|" status "|" all_title[id] "|" dep_str
+        }
+
         # Sort by sort_key
         for (i = 1; i <= count; i++) {
             for (j = i + 1; j <= count; j++) {
@@ -807,10 +860,24 @@ cmd_ls() {
                 }
             }
         }
-        # Output with colors
+
+        # Output
+        last_group = ""
         for (i = 1; i <= count; i++) {
             split(data[i], f, "|")
             id = f[2]; p = f[3]; status = f[4]; title = f[5]; dep_str = f[6]
+
+            # Group headers
+            if (group_mode) {
+                grp = substr(f[1], 1, 1)
+                if (grp != last_group) {
+                    if (last_group != "") print ""
+                    header_color = use_color ? "\033[1m" : ""
+                    reset = use_color ? "\033[0m" : ""
+                    printf "%s=== %s ===%s\n", header_color, group_name(grp), reset
+                    last_group = grp
+                }
+            }
 
             # Color codes
             reset = use_color ? "\033[0m" : ""
@@ -1709,7 +1776,7 @@ Commands:
   undep <id> <dep-id>      Remove dependency
   link <id> <id> [id...]   Link tickets together (symmetric)
   unlink <id> <target-id>  Remove link between tickets
-  ls [--status=X] [-a X] [-T X] [-P X] [-t X]  List tickets
+  ls [--group] [--status=X] [-a X] [-T X] [-P X] [-t X]  List tickets
   ready [--open] [-a X] [-T X]  List ready tickets (--open skips hierarchy/plan checks)
   blocked [-a X] [-T X]    List open/in-progress tickets with unresolved deps
   closed [--limit=N] [-a X] [-T X] List recently closed tickets (default 20, by mtime)
