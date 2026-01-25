@@ -897,6 +897,10 @@ cmd_ls() {
 
         # Output
         last_group = ""
+        header_printed = 0
+        dim = use_color ? "\033[2m" : ""
+        reset_all = use_color ? "\033[0m" : ""
+
         for (i = 1; i <= count; i++) {
             split(data[i], f, "|")
             id = f[2]; p = f[3]; status = f[4]; title = f[5]; dep_str = f[6]; ttype = f[7]; grp_val = f[8]
@@ -906,10 +910,13 @@ cmd_ls() {
                 if (grp_val != last_group) {
                     if (last_group != "") print ""
                     header_color = use_color ? "\033[1m" : ""
-                    reset = use_color ? "\033[0m" : ""
-                    printf "%s=== %s ===%s\n", header_color, group_name(grp_val, group_by), reset
+                    printf "%s=== %s ===%s\n", header_color, group_name(grp_val, group_by), reset_all
+                    printf "%s%-8s  %s  %-10s  %-13s  %s%s\n", dim, "ID", "P", "TYPE", "STATUS", "TITLE", reset_all
                     last_group = grp_val
                 }
+            } else if (!header_printed) {
+                printf "%s%-8s  %s  %-10s  %-13s  %s%s\n", dim, "ID", "P", "TYPE", "STATUS", "TITLE", reset_all
+                header_printed = 1
             }
 
             # Color codes
@@ -924,7 +931,7 @@ cmd_ls() {
                 color = ""
             }
 
-            printf "%-8s [P%s] [%-10s] %s%-13s%s %s%s\n", id, p, ttype, color, status, reset, title, dep_str
+            printf "%-8s  %s  %-10s  %s%-13s%s  %s%s\n", id, p, ttype, color, status, reset, title, dep_str
         }
     }
     ' "$TICKETS_DIR"/*.md 2>/dev/null
