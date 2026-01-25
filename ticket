@@ -748,10 +748,15 @@ cmd_ls() {
     # Normalize priority filter (strip leading P if present)
     priority_filter="${priority_filter#P}"
 
-    awk -v status_filter="$status_filter" -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" -v priority_filter="$priority_filter" -v type_filter="$type_filter" '
+    # Determine if we should use colors
+    local use_color=1
+    [[ -n "${NO_COLOR:-}" ]] && use_color=0
+    [[ ! -t 1 ]] && use_color=0
+
+    awk -v status_filter="$status_filter" -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" -v priority_filter="$priority_filter" -v type_filter="$type_filter" -v use_color="$use_color" '
     BEGIN { FS=": "; in_front=0 }
     FNR==1 {
-        if (prev_file) emit()
+        if (prev_file) store()
         id=""; status=""; title=""; deps=""; assignee=""; tags=""; priority=""; ticket_type=""; in_front=0
         prev_file=FILENAME
     }
@@ -767,19 +772,59 @@ cmd_ls() {
         gsub(/[\[\] ]/, "", deps)
     }
     !in_front && /^# / && title == "" { title = substr($0, 3) }
-    END { if (prev_file) emit() }
     function has_tag(tags_str, tag,    i, n, arr) {
         n = split(tags_str, arr, ",")
         for (i = 1; i <= n; i++) if (arr[i] == tag) return 1
         return 0
     }
-    function emit() {
+    function status_order(s) {
+        if (s == "in_progress") return 1
+        if (s == "open") return 2
+        if (s == "needs_testing") return 3
+        if (s == "closed") return 4
+        return 5
+    }
+    function store() {
         if (id != "" && (status_filter == "" || status == status_filter) && (assignee_filter == "" || assignee == assignee_filter) && (tag_filter == "" || has_tag(tags, tag_filter)) && (priority_filter == "" || priority == priority_filter) && (type_filter == "" || ticket_type == type_filter)) {
-            deps_display = (deps != "") ? "[" deps "]" : "[]"
-            gsub(/,/, ", ", deps_display)
-            dep_str = (deps_display != "[]") ? " <- " deps_display : ""
+            count++
             p = (priority != "") ? priority : 2
-            printf "%-8s [P%s][%s] - %s%s\n", id, p, status, title, dep_str
+            dep_str = (deps != "") ? " <- [" deps "]" : ""
+            gsub(/,/, ", ", dep_str)
+            # Sort key: status_order (1 digit) + priority (1 digit) + id
+            sort_key = status_order(status) "" p "" id
+            data[count] = sort_key "|" id "|" p "|" status "|" title "|" dep_str
+        }
+    }
+    END {
+        if (prev_file) store()
+        # Sort by sort_key
+        for (i = 1; i <= count; i++) {
+            for (j = i + 1; j <= count; j++) {
+                split(data[i], a, "|")
+                split(data[j], b, "|")
+                if (a[1] > b[1]) {
+                    tmp = data[i]; data[i] = data[j]; data[j] = tmp
+                }
+            }
+        }
+        # Output with colors
+        for (i = 1; i <= count; i++) {
+            split(data[i], f, "|")
+            id = f[2]; p = f[3]; status = f[4]; title = f[5]; dep_str = f[6]
+
+            # Color codes
+            reset = use_color ? "\033[0m" : ""
+            if (use_color) {
+                if (status == "in_progress") color = "\033[33m"      # yellow
+                else if (status == "open") color = "\033[0m"         # default
+                else if (status == "needs_testing") color = "\033[36m" # cyan
+                else if (status == "closed") color = "\033[32m"      # green
+                else color = ""
+            } else {
+                color = ""
+            }
+
+            printf "%-8s [P%s] %s%-13s%s %s%s\n", id, p, color, status, reset, title, dep_str
         }
     }
     ' "$TICKETS_DIR"/*.md 2>/dev/null
