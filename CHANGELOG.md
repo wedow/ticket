@@ -3,7 +3,6 @@
 ## [Unreleased]
 
 ### Added
-- `workstream` ticket type for high-level containers
 - `needs_testing` status
 - `-s, --status` flag for `edit` command to change ticket status
 - Hierarchy gating: `ready` only shows tickets whose parent is `in_progress`

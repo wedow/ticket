@@ -215,7 +215,7 @@ cmd_create() {
             [[ -n "$input_priority" ]] && priority="$input_priority"
         fi
         if [[ "$issue_type" == "task" ]]; then
-            read -r -p "Type [task/epic/workstream/bug] (default task): " input_type
+            read -r -p "Type [task/epic/bug] (default task): " input_type
             [[ -n "$input_type" ]] && issue_type="$input_type"
         fi
         if [[ -z "$tags" ]]; then
@@ -826,12 +826,11 @@ cmd_ls() {
     }
     function type_order(t) {
         if (t == "epic") return 1
-        if (t == "workstream") return 2
-        if (t == "feature") return 3
-        if (t == "task") return 4
-        if (t == "bug") return 5
-        if (t == "chore") return 6
-        return 7
+        if (t == "feature") return 2
+        if (t == "task") return 3
+        if (t == "bug") return 4
+        if (t == "chore") return 5
+        return 6
     }
     function status_order(s) {
         if (s == "in_progress") return 1
@@ -1792,7 +1791,6 @@ cmd_workflow() {
 ## Ticket Types
 - task: Default type for work items
 - epic: Container for related tasks, provides hierarchy
-- workstream: High-level container for epics and tasks
 - feature: New functionality
 - bug: Defect fix
 - chore: Maintenance work
@@ -1847,7 +1845,7 @@ Commands:
     -d, --description      Description text
     --design               Design notes
     --acceptance           Acceptance criteria
-    -t, --type             Type (bug|feature|task|epic|workstream|chore) [default: task]
+    -t, --type             Type (bug|feature|task|epic|chore) [default: task]
     -p, --priority         Priority 0-4, 0=highest [default: 2]
     -a, --assignee         Assignee
     --external-ref         External reference (e.g., gh-123, JIRA-456)
@@ -1872,7 +1870,7 @@ Commands:
     --design               Design notes
     --acceptance           Acceptance criteria
     -s, --status           Status (open|in_progress|needs_testing|closed)
-    -t, --type             Type (bug|feature|task|epic|workstream|chore)
+    -t, --type             Type (bug|feature|task|epic|chore)
     -p, --priority         Priority 0-4
     -a, --assignee         Assignee
     --external-ref         External reference

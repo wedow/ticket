@@ -127,7 +127,7 @@ assert_contains "tk show $ID3" "## Design" "Create with design section"
 assert_contains "tk show $ID3" "## Acceptance Criteria" "Create with acceptance section"
 
 # Create different types
-for type in task feature bug workstream chore; do
+for type in task feature bug chore; do
     ID=$(tk create "Test $type type" -t "$type" | extract_id)
     track_id "$ID"
     assert_contains "tk show $ID" "type: $type" "Create type: $type"
