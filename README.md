@@ -1,64 +1,38 @@
 # ticket
 
-The git-backed issue tracker for AI agents. Rooted in the Unix Philosophy, `tk` is inspired by Joe Armstrong's [Minimal Viable Program](https://joearms.github.io/published/2014-06-25-minimal-viable-program.html) with additional quality of life features for managing and querying against complex issue dependency graphs.
-
-`tk` was written as a full replacement for [beads](https://github.com/steveyegge/beads). It shares many similar commands but without the need for keeping a SQLite file in sync or a rogue background daemon mangling your changes. It ships with a `migrate-beads` command to make this a smooth transition.
+A git-backed issue tracker for AI agents. Rooted in the Unix Philosophy, `tk` is inspired by Joe Armstrong's [Minimal Viable Program](https://joearms.github.io/published/2014-06-25-minimal-viable-program.html) with additional quality of life features for managing and querying against complex issue dependency graphs.
 
 Tickets are markdown files with YAML frontmatter in `.tickets/`. This allows AI agents to easily search them for relevant content without dumping ten thousand character JSONL lines into their context window.
 
-Using ticket IDs as file names also allows IDEs to quickly navigate to the ticket for you. For example, you might run `git log` in your terminal and see something like:
+Using ticket IDs as file names also allows IDEs to quickly navigate to the ticket. For example, you might run `git log` in your terminal and see something like:
 
 ```
-nw-5c46: add SSE connection management 
+nw-5c46: add SSE connection management
 ```
 
 VS Code allows you to Ctrl+Click or Cmd+Click the ID and jump directly to the file to read the details.
 
 ## Install
 
-**Homebrew (macOS/Linux):**
 ```bash
-brew tap wedow/tools
-brew install ticket
-```
-
-**Arch Linux (AUR):**
-```bash
-yay -S ticket  # or paru, etc.
-```
-
-**From source (auto-updates on git pull):**
-```bash
-git clone https://github.com/wedow/ticket.git
+git clone https://github.com/EnderRealm/ticket.git
 cd ticket && ln -s "$PWD/ticket" ~/.local/bin/tk
 ```
 
-**Or** just copy `ticket` to somewhere in your PATH.
-
-## Local Development
-
-Symlink the script to your PATH for live editing:
-
-```bash
-# Clone and symlink (changes take effect immediately)
-git clone https://github.com/wedow/ticket.git
-ln -s "$PWD/ticket/ticket" ~/.local/bin/tk
-
-# Or use a different location
-ln -s "$PWD/ticket/ticket" /usr/local/bin/tk
-
-# Verify it works
-tk help
-
-# Run directly without installing
-./ticket help
-```
-
-The symlink approach means any edits to the `ticket` script are immediately available - no reinstall needed.
+Or just copy `ticket` to somewhere in your PATH.
 
 ## Requirements
 
 `tk` is a portable bash script requiring only coreutils, so it works out of the box on any POSIX system with bash installed. The `query` command requires `jq`. Uses `rg` (ripgrep) if available, falls back to `grep`.
+
+## Configuration
+
+Set `TICKETS_DIR` to store tickets in a custom location (default: `.tickets`):
+
+```bash
+export TICKETS_DIR=".tasks"
+tk create "my ticket"
+```
 
 ## Agent Setup
 
@@ -99,53 +73,26 @@ Commands:
   undep <id> <dep-id>      Remove dependency
   link <id> <id> [id...]   Link tickets together (symmetric)
   unlink <id> <target-id>  Remove link between tickets
-  ls [--status=X] [-a X] [-T X] [-P X] [-t X]  List tickets
-  ready [-a X] [-T X]      List open/in-progress tickets with deps resolved
-  blocked [-a X] [-T X]    List open/in-progress tickets with unresolved deps
-  closed [--limit=N] [-a X] [-T X] List recently closed tickets (default 20, by mtime)
+  ls [options]             List tickets
+  ready [options]          List actionable tickets (open/in_progress, deps resolved)
+  blocked [options]        List tickets with unresolved deps
+  closed [options]         List recently closed tickets (default 20, by mtime)
   show <id>                Display ticket
-  edit <id> [options]      Update ticket fields
-    --title                New title
-    -d, --description      Description text
-    --design               Design notes
-    --acceptance           Acceptance criteria
-    -t, --type             Type (bug|feature|task|epic|chore)
-    -p, --priority         Priority 0-4
-    -a, --assignee         Assignee
-    --external-ref         External reference
-    --parent               Parent ticket ID
-    --tags                 Comma-separated tags
+  edit <id> [options]      Update ticket fields (same flags as create)
   add-note <id> [text]     Append timestamped note (or pipe via stdin)
   query [jq-filter]        Output tickets as JSON, optionally filtered
-  migrate-beads            Import tickets from .beads/issues.jsonl
+
+Filter flags (for ls, ready, blocked, closed):
+  -a, --assignee X         Filter by assignee
+  -t, --type X             Filter by type
+  -T, --tag X              Filter by tag
+  -P, --priority X         Filter by priority (0-4)
+  --status X               Filter by status (ls only)
+  --limit N                Limit results (closed only)
 
 Tickets stored as markdown files in .tickets/
 Supports partial ID matching (e.g., 'tk show 5c4' matches 'nw-5c46')
 ```
-
-## Migrating from Beads
-
-```bash
-tk migrate-beads
-
-# review new files if you like
-git status
-
-# check state matches expectations
-tk ready
-tk blocked
-
-# compare against
-bd ready
-bd blocked
-
-# all good, let's go
-git rm -rf .beads
-git add .tickets
-git commit -am "ditch beads"
-```
-
-For a thorough system-wide Beads cleanup, see [banteg's uninstall script](https://gist.github.com/banteg/1a539b88b3c8945cd71e4b958f319d8d).
 
 ## License
 
