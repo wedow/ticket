@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- `list` alias for `ls` command
 - `needs_testing` status
 - `-s, --status` flag for `edit` command to change ticket status
 - Hierarchy gating: `ready` only shows tickets whose parent is `in_progress`

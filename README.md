@@ -73,7 +73,7 @@ Commands:
   undep <id> <dep-id>      Remove dependency
   link <id> <id> [id...]   Link tickets together (symmetric)
   unlink <id> <target-id>  Remove link between tickets
-  ls [options]             List tickets
+  ls|list [options]        List tickets
   ready [options]          List actionable tickets (open/in_progress, deps resolved)
   blocked [options]        List tickets with unresolved deps
   closed [options]         List recently closed tickets (default 20, by mtime)

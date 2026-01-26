@@ -1858,7 +1858,7 @@ Commands:
   undep <id> <dep-id>      Remove dependency
   link <id> <id> [id...]   Link tickets together (symmetric)
   unlink <id> <target-id>  Remove link between tickets
-  ls [--group-by=X] [--status=X] [-a X] [-T X] [-P X] [-t X]  List tickets
+  ls|list [--group-by=X] [--status=X] [-a X] [-T X] [-P X] [-t X]  List tickets
     --group, --group-by    Group by: workflow|type|status|priority
   ready [--open] [-a X] [-T X]  List ready tickets (--open skips hierarchy checks)
   blocked [-a X] [-T X]    List open/in-progress tickets with unresolved deps
@@ -1894,7 +1894,7 @@ case "${1:-help}" in
     undep)  shift; cmd_undep "$@" ;;
     link)   shift; cmd_link "$@" ;;
     unlink) shift; cmd_unlink "$@" ;;
-    ls)     shift; cmd_ls "$@" ;;
+    ls|list) shift; cmd_ls "$@" ;;
     ready)  shift; cmd_ready "$@" ;;
     blocked) shift; cmd_blocked "$@" ;;
     closed) shift; cmd_closed "$@" ;;
