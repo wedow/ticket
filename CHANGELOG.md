@@ -8,6 +8,7 @@
 
 ### Changed
 - Walk parent directories to find `.tickets/` directory, enabling commands from any subdirectory
+- Ticket ID suffix now uses full alphanumeric (a-z0-9) instead of hex for increased entropy
 
 ### Fixed
 - `dep` command now resolves partial IDs for the dependency argument
