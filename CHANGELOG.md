@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- `edit --children` flag to open a ticket and all its descendants in `$EDITOR`
+
 ## [0.3.1] - 2026-01-28
 
 ### Added

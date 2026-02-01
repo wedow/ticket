@@ -82,7 +82,7 @@ Commands:
   blocked [-a X] [-T X]    List open/in-progress tickets with unresolved deps
   closed [--limit=N] [-a X] [-T X] List recently closed tickets (default 20, by mtime)
   show <id>                Display ticket
-  edit <id>                Open ticket in $EDITOR
+  edit <id> [--children]   Open ticket in $EDITOR (--children includes descendants)
   add-note <id> [text]     Append timestamped note (or pipe via stdin)
   query [jq-filter]        Output tickets as JSON, optionally filtered
   migrate-beads            Import tickets from .beads/issues.jsonl

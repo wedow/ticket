@@ -1301,18 +1301,90 @@ cmd_add_note() {
 }
 
 cmd_edit() {
-    if [[ $# -lt 1 ]]; then
-        echo "Usage: ticket edit <id>" >&2
+    local children=false
+    local id=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --children) children=true; shift ;;
+            -*) echo "Error: unknown flag '$1'" >&2; return 1 ;;
+            *) id="$1"; shift ;;
+        esac
+    done
+
+    if [[ -z "$id" ]]; then
+        echo "Usage: ticket edit <id> [--children]" >&2
         return 1
     fi
 
     local file
-    file=$(ticket_path "$1") || return 1
+    file=$(ticket_path "$id") || return 1
+
+    local files=("$file")
+
+    if [[ "$children" == true ]]; then
+        local target_id
+        target_id=$(basename "$file" .md)
+
+        local descendants
+        descendants=$(awk -v root="$target_id" '
+        BEGIN { FS=": "; in_front=0 }
+        FNR==1 {
+            if (prev_file) store()
+            id=""; parent=""; in_front=0
+            prev_file=FILENAME
+        }
+        /^---$/ { in_front = !in_front; next }
+        in_front && /^id:/ { id = $2 }
+        in_front && /^parent:/ { parent = $2 }
+
+        function store() {
+            if (id != "") {
+                ids[id] = prev_file
+                if (parent != "") parents[id] = parent
+            }
+        }
+
+        END {
+            if (prev_file) store()
+
+            # Build parent -> children map
+            for (id in parents) {
+                p = parents[id]
+                if (!(p in child_count)) child_count[p] = 0
+                child_count[p]++
+                children[p, child_count[p]] = id
+            }
+
+            # Iterative DFS
+            stack[1] = root
+            sp = 1
+            while (sp > 0) {
+                node = stack[sp]; sp--
+                if (node in visited) continue
+                visited[node] = 1
+                if (node != root) print ids[node]
+                # Push children in reverse order for correct DFS ordering
+                n = (node in child_count) ? child_count[node] : 0
+                for (i = n; i >= 1; i--) {
+                    ch = children[node, i]
+                    if (!(ch in visited)) { sp++; stack[sp] = ch }
+                }
+            }
+        }
+        ' "$TICKETS_DIR"/*.md 2>/dev/null)
+
+        while IFS= read -r desc_file; do
+            [[ -n "$desc_file" ]] && files+=("$desc_file")
+        done <<< "$descendants"
+    fi
 
     if [ -t 0 ] && [ -t 1 ]; then
-        "${EDITOR:-vi}" "$file"
+        "${EDITOR:-vi}" "${files[@]}"
     else
-        echo "Edit ticket file: $file"
+        for f in "${files[@]}"; do
+            echo "Edit ticket file: $f"
+        done
     fi
 }
 
@@ -1463,7 +1535,7 @@ Commands:
   blocked [-a X] [-T X]    List open/in-progress tickets with unresolved deps
   closed [--limit=N] [-a X] [-T X] List recently closed tickets (default 20, by mtime)
   show <id>                Display ticket
-  edit <id>                Open ticket in \$EDITOR
+  edit <id> [--children]   Open ticket in \$EDITOR (--children includes descendants)
   add-note <id> [text]     Append timestamped note (or pipe via stdin)
   query [jq-filter]        Output tickets as JSON, optionally filtered
   migrate-beads            Import tickets from .beads/issues.jsonl
