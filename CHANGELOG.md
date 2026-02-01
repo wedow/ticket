@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- `tree` command to display parent-child ticket hierarchy with box-drawing characters
+  - Supports `--status`, `-a` (assignee), and `-T` (tag) filters
+  - Ancestor tickets are preserved when filtering to maintain tree structure
+  - Children sorted by subtree depth (shallow first), then by ID
+
 ## [0.3.1] - 2026-01-28
 
 ### Added

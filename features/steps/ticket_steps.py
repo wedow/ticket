@@ -166,6 +166,31 @@ def step_ticket_linked_to(context, ticket_id, link_id):
     link_path.write_text(content)
 
 
+@given(r'ticket "(?P<ticket_id>[^"]+)" has assignee "(?P<assignee>[^"]+)"')
+def step_ticket_has_assignee(context, ticket_id, assignee):
+    """Set ticket assignee."""
+    ticket_path = Path(context.test_dir) / '.tickets' / f'{ticket_id}.md'
+    content = ticket_path.read_text()
+    if re.search(r'^assignee:', content, re.MULTILINE):
+        content = re.sub(r'^assignee:.*$', f'assignee: {assignee}', content, flags=re.MULTILINE)
+    else:
+        content = content.replace('---\n# ', f'assignee: {assignee}\n---\n# ', 1)
+    ticket_path.write_text(content)
+
+
+@given(r'ticket "(?P<ticket_id>[^"]+)" has tags "(?P<tags>[^"]+)"')
+def step_ticket_has_tags(context, ticket_id, tags):
+    """Set ticket tags."""
+    ticket_path = Path(context.test_dir) / '.tickets' / f'{ticket_id}.md'
+    content = ticket_path.read_text()
+    tags_yaml = f'tags: [{tags}]'
+    if re.search(r'^tags:', content, re.MULTILINE):
+        content = re.sub(r'^tags:.*$', tags_yaml, content, flags=re.MULTILINE)
+    else:
+        content = content.replace('---\n# ', f'{tags_yaml}\n---\n# ', 1)
+    ticket_path.write_text(content)
+
+
 @given(r'ticket "(?P<ticket_id>[^"]+)" has a notes section')
 def step_ticket_has_notes(context, ticket_id):
     """Ensure ticket has a notes section."""
@@ -591,21 +616,21 @@ def step_jsonl_deps_is_array(context):
     raise AssertionError("No JSONL line with deps field found")
 
 
-@then(r'the dep tree output should have (?P<first_id>[^\s]+) before (?P<second_id>[^\s]+)')
-def step_dep_tree_order(context, first_id, second_id):
-    """Assert that first_id appears before second_id in dep tree output."""
+@then(r'the (?:dep )?tree output should have (?P<first_id>[^\s]+) before (?P<second_id>[^\s]+)')
+def step_tree_output_order(context, first_id, second_id):
+    """Assert that first_id appears before second_id in tree output."""
     output = context.stdout
     lines = output.split('\n')
-    
+
     first_line = -1
     second_line = -1
-    
+
     for i, line in enumerate(lines):
         if first_id in line:
             first_line = i
         if second_id in line:
             second_line = i
-    
+
     assert first_line != -1, f"'{first_id}' not found in output:\n{output}"
     assert second_line != -1, f"'{second_id}' not found in output:\n{output}"
     assert first_line < second_line, \

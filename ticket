@@ -286,6 +286,251 @@ cmd_reopen() {
     cmd_status "$1" "open"
 }
 
+cmd_tree() {
+    local root_id="" status_filter="" assignee_filter="" tag_filter=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --status=*) status_filter="${1#--status=}"; shift ;;
+            -a) assignee_filter="$2"; shift 2 ;;
+            --assignee=*) assignee_filter="${1#--assignee=}"; shift ;;
+            -T) tag_filter="$2"; shift 2 ;;
+            --tag=*) tag_filter="${1#--tag=}"; shift ;;
+            -*) echo "Unknown option: $1" >&2; return 1 ;;
+            *) root_id="$1"; shift ;;
+        esac
+    done
+
+    local _files
+    _files=$(find "$TICKETS_DIR" -maxdepth 1 -name '*.md' 2>/dev/null)
+    if [[ -z "$_files" ]]; then
+        if [[ -n "$root_id" ]]; then
+            echo "Error: ticket $root_id not found" >&2
+            return 1
+        fi
+        return 0
+    fi
+
+    awk -v root_pattern="$root_id" -v status_filter="$status_filter" \
+        -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" '
+    BEGIN { FS=": "; in_front=0 }
+    FNR==1 {
+        if (prev_file) store()
+        id=""; status=""; title=""; parent=""; assignee=""; tags=""; in_front=0
+        prev_file=FILENAME
+    }
+    /^---$/ { in_front = !in_front; next }
+    in_front && /^id:/ { id = $2 }
+    in_front && /^status:/ { status = $2 }
+    in_front && /^parent:/ { parent = $2 }
+    in_front && /^assignee:/ { assignee = $2 }
+    in_front && /^tags:/ { tags = $2; gsub(/[\[\] ]/, "", tags) }
+    !in_front && /^# / && title == "" { title = substr($0, 3) }
+    function store() {
+        if (id != "") {
+            statuses[id] = status
+            titles[id] = title
+            parent_of[id] = parent
+            assignees[id] = assignee
+            all_tags[id] = tags
+            ticket_count++
+            ticket_ids[ticket_count] = id
+        }
+    }
+
+    function has_tag(tags_str, tag,    i, n, arr) {
+        n = split(tags_str, arr, ",")
+        for (i = 1; i <= n; i++) if (arr[i] == tag) return 1
+        return 0
+    }
+
+    END {
+        if (prev_file) store()
+
+        # Build children map from parent field
+        for (i = 1; i <= ticket_count; i++) {
+            id = ticket_ids[i]
+            p = parent_of[id]
+            if (p != "" && p in statuses) {
+                child_count[p]++
+                child_list[p, child_count[p]] = id
+            }
+        }
+
+        # Determine filter active
+        filtering = (status_filter != "" || assignee_filter != "" || tag_filter != "")
+
+        # Mark tickets matching filter
+        for (i = 1; i <= ticket_count; i++) {
+            id = ticket_ids[i]
+            if (!filtering) {
+                matches[id] = 1
+            } else {
+                ok = 1
+                if (status_filter != "" && statuses[id] != status_filter) ok = 0
+                if (assignee_filter != "" && assignees[id] != assignee_filter) ok = 0
+                if (tag_filter != "" && !has_tag(all_tags[id], tag_filter)) ok = 0
+                if (ok) matches[id] = 1
+            }
+        }
+
+        # Propagate upward: if a ticket matches, all ancestors are included
+        if (filtering) {
+            changed = 1
+            while (changed) {
+                changed = 0
+                for (i = 1; i <= ticket_count; i++) {
+                    id = ticket_ids[i]
+                    if (!(id in included) && (id in matches)) {
+                        included[id] = 1
+                        # Walk up ancestors
+                        cur = id
+                        while (parent_of[cur] != "" && parent_of[cur] in statuses) {
+                            cur = parent_of[cur]
+                            if (cur in included) break
+                            included[cur] = 1
+                            changed = 1
+                        }
+                    }
+                }
+                if (!changed) break
+            }
+            # included = tickets to show; matches = tickets that actually match filter
+        }
+
+        # Resolve root(s)
+        if (root_pattern != "") {
+            root = ""
+            for (id in statuses) {
+                if (index(id, root_pattern) > 0) {
+                    if (root != "") {
+                        print "Error: ambiguous ID " root_pattern > "/dev/stderr"
+                        exit 1
+                    }
+                    root = id
+                }
+            }
+            if (root == "") {
+                print "Error: ticket " root_pattern " not found" > "/dev/stderr"
+                exit 1
+            }
+            root_count = 1
+            roots[1] = root
+        } else {
+            # Collect all root tickets (no parent or parent not found)
+            root_count = 0
+            for (i = 1; i <= ticket_count; i++) {
+                id = ticket_ids[i]
+                p = parent_of[id]
+                if (p == "" || !(p in statuses)) {
+                    if (!filtering || (id in included)) {
+                        root_count++
+                        roots[root_count] = id
+                    }
+                }
+            }
+        }
+
+        # Compute subtree depths (iterative post-order from each root)
+        for (r = 1; r <= root_count; r++) {
+            delete _stack; delete _path; delete _phase
+            _stack[1] = roots[r]; _path[1] = ":"; _phase[1] = 0
+            _sp = 1
+            while (_sp > 0) {
+                _id = _stack[_sp]; _p = _path[_sp]; _ph = _phase[_sp]
+
+                if (!(_id in statuses) || index(_p, ":" _id ":") > 0) { _sp--; continue }
+
+                if (_ph == 0) {
+                    _stack[_sp]; _phase[_sp] = 1
+                    _np = _p _id ":"
+                    for (i = child_count[_id]; i >= 1; i--) {
+                        ch = child_list[_id, i]
+                        if (ch != "" && !(ch in subtree_depth)) {
+                            _sp++
+                            _stack[_sp] = ch
+                            _path[_sp] = _np
+                            _phase[_sp] = 0
+                        }
+                    }
+                } else {
+                    max_sub = 0
+                    for (i = 1; i <= child_count[_id]; i++) {
+                        ch = child_list[_id, i]
+                        if (ch in subtree_depth && subtree_depth[ch] + 1 > max_sub) {
+                            max_sub = subtree_depth[ch] + 1
+                        }
+                    }
+                    subtree_depth[_id] = max_sub
+                    _sp--
+                }
+            }
+        }
+
+        # Sort roots by subtree_depth then ID
+        for (i = 2; i <= root_count; i++) {
+            tmp = roots[i]
+            j = i - 1
+            while (j >= 1 && (subtree_depth[roots[j]] > subtree_depth[tmp] || \
+                   (subtree_depth[roots[j]] == subtree_depth[tmp] && roots[j] > tmp))) {
+                roots[j + 1] = roots[j]
+                j--
+            }
+            roots[j + 1] = tmp
+        }
+
+        # Print tree for each root
+        for (r = 1; r <= root_count; r++) {
+            id = roots[r]
+            if (filtering && !(id in included)) continue
+            print id " [" statuses[id] "] " titles[id]
+            build_tree_children(id, "", ":" id ":")
+        }
+    }
+
+    function build_tree_children(id, prefix, path,    i, n, ch, arr, tmp, j) {
+        # Collect printable children
+        n = 0
+        for (i = 1; i <= child_count[id]; i++) {
+            ch = child_list[id, i]
+            if (ch == "") continue
+            if (!(ch in statuses)) continue
+            if (index(path, ":" ch ":") > 0) continue
+            if (filtering && !(ch in included)) continue
+            n++
+            arr[n] = ch
+        }
+        if (n == 0) return
+
+        # Sort by subtree_depth, then by ticket ID (insertion sort)
+        for (i = 2; i <= n; i++) {
+            tmp = arr[i]
+            j = i - 1
+            while (j >= 1 && (subtree_depth[arr[j]] > subtree_depth[tmp] || \
+                   (subtree_depth[arr[j]] == subtree_depth[tmp] && arr[j] > tmp))) {
+                arr[j + 1] = arr[j]
+                j--
+            }
+            arr[j + 1] = tmp
+        }
+
+        # Print each child
+        for (i = 1; i <= n; i++) {
+            ch = arr[i]
+            if (i == n) {
+                connector = "└── "
+                new_prefix = prefix "    "
+            } else {
+                connector = "├── "
+                new_prefix = prefix "│   "
+            }
+            print prefix connector ch " [" statuses[ch] "] " titles[ch]
+            build_tree_children(ch, new_prefix, path ch ":")
+        }
+    }
+    ' "$TICKETS_DIR"/*.md
+}
+
 cmd_dep_tree() {
     local full_mode=0
     local root_id=""
@@ -1452,6 +1697,7 @@ Commands:
   close <id>               Set status to closed
   reopen <id>              Set status to open
   status <id> <status>     Update status (open|in_progress|closed)
+  tree [id] [--status=X] [-a X] [-T X]  Show parent-child ticket hierarchy
   dep <id> <dep-id>        Add dependency (id depends on dep-id)
   dep tree [--full] <id>   Show dependency tree (--full disables dedup)
   dep cycle                Find dependency cycles in open tickets
@@ -1486,6 +1732,7 @@ case "${1:-help}" in
     close)  shift; cmd_close "$@" ;;
     reopen) shift; cmd_reopen "$@" ;;
     status) shift; cmd_status "$@" ;;
+    tree)   shift; cmd_tree "$@" ;;
     dep)    shift; cmd_dep "$@" ;;
     undep)  shift; cmd_undep "$@" ;;
     link)   shift; cmd_link "$@" ;;
