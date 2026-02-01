@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This project uses `tk` for ticket management.
 
-Run `tk help` for command reference. When adding/changing commands or flags, update:
+When adding/changing commands or flags, update:
 1. The `cmd_help()` function in `ticket`
 2. The Usage section in `README.md`
 
