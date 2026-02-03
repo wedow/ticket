@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Plugin system: executables named `tk-<cmd>` or `ticket-<cmd>` in PATH are invoked automatically
+- `super` command to bypass plugins and run built-in commands directly
+- `TICKETS_DIR` and `TK_SCRIPT` environment variables exported for plugins
+
 ## [0.3.2] - 2026-02-03
 
 ### Fixed

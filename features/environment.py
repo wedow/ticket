@@ -26,9 +26,11 @@ def before_scenario(context, scenario):
 
 
 def after_scenario(context, scenario):
-    """Clean up temporary directory after each scenario."""
+    """Clean up temporary directories after each scenario."""
     if hasattr(context, 'test_dir') and os.path.exists(context.test_dir):
         shutil.rmtree(context.test_dir)
+    if hasattr(context, 'plugin_dir') and os.path.exists(context.plugin_dir):
+        shutil.rmtree(context.plugin_dir)
 
 
 def before_feature(context, feature):

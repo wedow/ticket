@@ -1469,6 +1469,11 @@ Commands:
   add-note <id> [text]     Append timestamped note (or pipe via stdin)
   query [jq-filter]        Output tickets as JSON, optionally filtered
   migrate-beads            Import tickets from .beads/issues.jsonl
+  super <cmd> [args]       Bypass plugins, run built-in command directly
+
+Plugins: Executables named tk-<cmd> or ticket-<cmd> in PATH are invoked
+automatically. Use 'super' to bypass. Plugins receive TICKETS_DIR and
+TK_SCRIPT env vars; use '\$TK_SCRIPT super <cmd>' to call built-ins.
 
 Tickets stored as markdown files in .tickets/
 Supports partial ID matching (e.g., '$cmd show 5c4' matches 'nw-5c46')
@@ -1476,12 +1481,36 @@ EOF
 }
 
 # Main dispatch
-# Initialize tickets dir (skip for help)
+
+# Handle 'super' to bypass plugins
+_tk_super=0
+if [[ "${1:-}" == "super" ]]; then
+    _tk_super=1
+    shift
+fi
+
+# Check for plugin commands first (unless super mode)
+# Plugins are responsible for their own TICKETS_DIR handling
+if [[ $_tk_super -eq 0 && -n "${1:-}" && "${1:-}" != "help" && "${1:-}" != "--help" && "${1:-}" != "-h" ]]; then
+    for _prefix in tk ticket; do
+        _plugin="${_prefix}-$1"
+        if command -v "$_plugin" &>/dev/null; then
+            # Export context for plugins
+            export TICKETS_DIR="${TICKETS_DIR:-$(find_tickets_dir 2>/dev/null || echo "")}"
+            export TK_SCRIPT="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+            shift
+            exec "$_plugin" "$@"
+        fi
+    done
+fi
+
+# Initialize tickets dir for built-in commands (skip for help)
 case "${1:-help}" in
     help|--help|-h) ;;
     *) init_tickets_dir "${1:-}" || exit 1 ;;
 esac
 
+# Built-in commands
 case "${1:-help}" in
     create) shift; cmd_create "$@" ;;
     start)  shift; cmd_start "$@" ;;
