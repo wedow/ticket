@@ -75,6 +75,12 @@ Feature: Ticket Show
     And the output should contain "parent: show-001"
     And the output should contain "# Parent ticket"
 
+  Scenario: Show does not use pager when TICKET_PAGER is empty
+    Given a ticket exists with ID "show-001" and title "Test ticket"
+    When I run "ticket show show-001" with TICKET_PAGER set to ""
+    Then the command should succeed
+    And the output should contain "# Test ticket"
+
   Scenario: Show non-existent ticket
     When I run "ticket show nonexistent"
     Then the command should fail
