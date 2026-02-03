@@ -42,73 +42,16 @@ jobs:
           echo "sha256=$SHA" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Update Homebrew formula
+      - name: Update Homebrew tap
         env:
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
         run: |
-          git clone https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/wedow/homebrew-tools.git tap
-          cd tap
+          chmod +x scripts/publish-homebrew.sh
+          ./scripts/publish-homebrew.sh "${{ steps.sha.outputs.version }}" "${{ steps.sha.outputs.sha256 }}"
 
-          VERSION=${{ steps.sha.outputs.version }}
-          SHA=${{ steps.sha.outputs.sha256 }}
-
-          sed -i "s|url \".*\"|url \"https://github.com/wedow/ticket/archive/refs/tags/${VERSION}.tar.gz\"|" Formula/ticket.rb
-          sed -i "s|sha256 \".*\"|sha256 \"${SHA}\"|" Formula/ticket.rb
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/ticket.rb
-          git commit -m "ticket ${VERSION}"
-          git push
-
-      - name: Update AUR package
+      - name: Update AUR packages
         env:
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
         run: |
-          VERSION=${{ steps.sha.outputs.version }}
-          SHA=${{ steps.sha.outputs.sha256 }}
-          PKGVER=${VERSION#v}
-
-          mkdir -p ~/.ssh
-          echo "$AUR_SSH_KEY" > ~/.ssh/aur
-          chmod 600 ~/.ssh/aur
-          echo "Host aur.archlinux.org" >> ~/.ssh/config
-          echo "  IdentityFile ~/.ssh/aur" >> ~/.ssh/config
-          echo "  User aur" >> ~/.ssh/config
-          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
-
-          git clone ssh://aur@aur.archlinux.org/ticket.git aur
-          cd aur
-
-          cat > PKGBUILD << 'EOF'
-          # Maintainer: wedow <wedow@users.noreply.github.com>
-          pkgname=ticket
-          pkgver=PKGVER_PLACEHOLDER
-          pkgrel=1
-          pkgdesc="Minimal ticket tracking in bash"
-          arch=('any')
-          url="https://github.com/wedow/ticket"
-          license=('MIT')
-          depends=('bash' 'coreutils' 'findutils' 'gawk')
-          optdepends=('ripgrep: faster searching' 'jq: query command')
-          source=("$pkgname-$pkgver.tar.gz::https://github.com/wedow/ticket/archive/refs/tags/v$pkgver.tar.gz")
-          sha256sums=('SHA_PLACEHOLDER')
-
-          package() {
-              cd "$pkgname-$pkgver"
-              install -Dm755 ticket "$pkgdir/usr/bin/tk"
-              install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
-          }
-          EOF
-
-          sed -i "s|PKGVER_PLACEHOLDER|${PKGVER}|" PKGBUILD
-          sed -i "s|SHA_PLACEHOLDER|${SHA}|" PKGBUILD
-          sed -i 's|^          ||' PKGBUILD
-
-          docker run --rm -v "$PWD:/pkg" archlinux:latest bash -c "pacman -Sy --noconfirm pacman-contrib sudo && useradd -u 1001 builder && chown -R builder /pkg && cd /pkg && sudo -u builder makepkg --printsrcinfo > .SRCINFO && chown -R 1001:1001 /pkg"
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add PKGBUILD .SRCINFO
-          git commit -m "Update to ${VERSION}"
-          git push
+          chmod +x scripts/publish-aur.sh
+          ./scripts/publish-aur.sh "${{ steps.sha.outputs.version }}" "${{ steps.sha.outputs.sha256 }}"

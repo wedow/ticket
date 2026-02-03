@@ -1,0 +1,15 @@
+# Maintainer: wedow <wedow@users.noreply.github.com>
+# Meta-package for full ticket installation (backwards compatible)
+pkgname=ticket
+pkgver=0.3.2
+pkgrel=1
+pkgdesc="Minimal ticket tracking in bash"
+arch=('any')
+url="https://github.com/wedow/ticket"
+license=('MIT')
+depends=('ticket-core' 'ticket-extras')
+
+package() {
+    # Meta-package - no files to install
+    :
+}

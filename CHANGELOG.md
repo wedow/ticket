@@ -8,6 +8,8 @@
 - `TICKETS_DIR` and `TK_SCRIPT` environment variables exported for plugins
 - `help` command lists installed plugins with descriptions
 - Plugin metadata: `# tk-plugin:` comment for scripts, `--tk-describe` flag for binaries
+- Multi-package distribution: `ticket-core`, `ticket-extras`, and individual plugin packages
+- CI scripts for publishing to Homebrew tap and AUR
 
 ## [0.3.2] - 2026-02-03
 
