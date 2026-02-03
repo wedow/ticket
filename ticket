@@ -104,6 +104,8 @@ ensure_dir() {
 # Get ticket file path (supports partial ID matching)
 ticket_path() {
     local id="$1"
+    # Trim leading/trailing whitespace (handles Claude/agent quirks)
+    read -r id <<< "$id"
     local exact="$TICKETS_DIR/${id}.md"
 
     if [[ -f "$exact" ]]; then
