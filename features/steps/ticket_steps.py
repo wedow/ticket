@@ -166,6 +166,26 @@ def step_ticket_linked_to(context, ticket_id, link_id):
     link_path.write_text(content)
 
 
+@given(r'ticket "(?P<ticket_id>[^"]+)" has tags \[(?P<tags>[^\]]+)\]')
+def step_ticket_has_tags(context, ticket_id, tags):
+    """Set tags on a ticket using quoted YAML array format."""
+    ticket_path = Path(context.test_dir) / '.tickets' / f'{ticket_id}.md'
+    content = ticket_path.read_text()
+
+    # Format tags as quoted YAML array: ["tag1", "tag2"]
+    tags_list = [tag.strip().strip('"') for tag in tags.split(',')]
+    yaml_tags = '[' + ', '.join(f'"{tag}"' for tag in tags_list) + ']'
+
+    # Check if tags field exists
+    if re.search(r'^tags:', content, re.MULTILINE):
+        content = re.sub(r'^tags:.*$', f'tags: {yaml_tags}', content, flags=re.MULTILINE)
+    else:
+        # Add tags field after priority
+        content = re.sub(r'^(priority: \d+)$', rf'\1\ntags: {yaml_tags}', content, flags=re.MULTILINE)
+
+    ticket_path.write_text(content)
+
+
 @given(r'ticket "(?P<ticket_id>[^"]+)" has a notes section')
 def step_ticket_has_notes(context, ticket_id):
     """Ensure ticket has a notes section."""
@@ -589,6 +609,40 @@ def step_jsonl_deps_is_array(context):
                     f"deps field is not an array: {type(data['deps'])}"
                 return
     raise AssertionError("No JSONL line with deps field found")
+
+
+@then(r'the JSONL tags field should be a JSON array')
+def step_jsonl_tags_is_array(context):
+    """Assert tags field in JSONL is an array."""
+    lines = context.stdout.strip().split('\n')
+    assert lines, "No JSONL output"
+
+    for line in lines:
+        if line.strip():
+            data = json.loads(line)
+            if 'tags' in data:
+                assert isinstance(data['tags'], list), \
+                    f"tags field is not an array: {type(data['tags'])}\nActual value: {data['tags']}\nFull line: {line}"
+                return
+    raise AssertionError("No JSONL line with tags field found")
+
+
+@then(r'the JSONL tags field should contain "(?P<tag>[^"]+)"')
+def step_jsonl_tags_contains(context, tag):
+    """Assert tags field in JSONL contains a specific tag."""
+    lines = context.stdout.strip().split('\n')
+    assert lines, "No JSONL output"
+
+    for line in lines:
+        if line.strip():
+            data = json.loads(line)
+            if 'tags' in data:
+                assert isinstance(data['tags'], list), \
+                    f"tags field is not an array: {type(data['tags'])}"
+                assert tag in data['tags'], \
+                    f"Tag '{tag}' not found in tags: {data['tags']}\nFull line: {line}"
+                return
+    raise AssertionError("No JSONL line with tags field found")
 
 
 @then(r'the dep tree output should have (?P<first_id>[^\s]+) before (?P<second_id>[^\s]+)')

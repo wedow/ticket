@@ -1354,6 +1354,8 @@ cmd_query() {
                     for (j = 1; j <= n; j++) {
                         if (j > 1) printf ","
                         gsub(/^ +| +$/, "", items[j])
+                        # Strip quotes from items (handles both single and double quotes)
+                        gsub(/^["\047]|["\047]$/, "", items[j])
                         if (items[j] != "") printf "\"%s\"", items[j]
                     }
                     printf "]"
