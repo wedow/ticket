@@ -1411,6 +1411,7 @@ cmd_migrate_beads() {
         (if .assignee and .assignee != "" then "assignee: \(.assignee)\n" else "" end) +
         (if .external_ref and .external_ref != "" then "external-ref: \(.external_ref)\n" else "" end) +
         (if $parent then "parent: \($parent)\n" else "" end) +
+        (if .labels and .labels != "" then "tags: \(.labels)\n" else "" end) +
         "---\n" +
         "# \(.title // "Untitled")\n\n" +
         (if .description and .description != "" then "\(.description)\n\n" else "" end) +
