@@ -96,3 +96,14 @@ Feature: Ticket Creation
     When I run "ticket create 'First ticket'"
     Then the command should succeed
     And the tickets directory should exist
+
+  Scenario: Design headings are adjusted to proper nesting level
+    When I run "ticket create 'Design doc' --design '# Main Plan\n\nThis is the plan.\n\n## Section 1\n\nDetails here.'"
+    Then the command should succeed
+    And the created ticket should contain "### Main Plan"
+    And the created ticket should contain "#### Section 1"
+
+  Scenario: Design without headings is unchanged
+    When I run "ticket create 'Simple design' --design 'Just plain text here'"
+    Then the command should succeed
+    And the created ticket should contain "Just plain text here"

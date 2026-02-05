@@ -77,6 +77,25 @@ _sed_i() {
     sed "$@" "$file" > "$tmp" && mv "$tmp" "$file"
 }
 
+# Adjust markdown heading levels for design documents
+# Design docs are nested under ## Design, so all headings need to be h3 or deeper
+adjust_design_headings() {
+    local content="$1"
+
+    # Convert literal \n to actual newlines for processing
+    content=$(echo -e "$content")
+
+    # Check if content has any h1 or h2 headings
+    if ! echo "$content" | grep -q '^##\? '; then
+        # No h1/h2 headings found, assume already properly formatted
+        echo "$content"
+        return
+    fi
+
+    # Add two levels to all headings (# -> ###, ## -> ####, etc.)
+    echo "$content" | sed 's/^#/###/'
+}
+
 # Generate ticket ID from directory name + random string
 generate_id() {
     local dir_name
@@ -219,7 +238,7 @@ cmd_create() {
         if [[ -n "$design" ]]; then
             echo "## Design"
             echo ""
-            echo "$design"
+            adjust_design_headings "$design"
             echo ""
         fi
         if [[ -n "$acceptance" ]]; then
@@ -1424,9 +1443,31 @@ cmd_migrate_beads() {
             file = dir "/" id ".md"
             count++
             print "Migrated: " id
+            in_design = 0
             next
         }
-        file { print > file }
+        file {
+            # Check if this is a top-level section header (exits Design section)
+            if ($0 ~ /^## (Acceptance Criteria|Notes|Blockers|Blocking|Children|Linked)$/) {
+                in_design = 0
+                print > file
+                next
+            }
+
+            # Track when we enter Design section
+            if ($0 == "## Design") {
+                in_design = 1
+                print > file
+                next
+            }
+
+            # Adjust heading levels inside Design section
+            if (in_design && $0 ~ /^##? /) {
+                gsub(/^#/, "###", $0)
+            }
+
+            print > file
+        }
         END { if (file) close(file); print "Migrated " count " tickets from beads" }
     '
 }

@@ -424,6 +424,15 @@ def step_created_ticket_contains(context, text):
     assert text in content, f"Ticket does not contain '{text}'\nContent: {content}"
 
 
+@then(r'the created ticket should not contain "(?P<text>[^"]+)"')
+def step_created_ticket_not_contains(context, text):
+    """Assert the most recently created ticket does not contain text."""
+    ticket_id = context.last_created_id
+    ticket_path = Path(context.test_dir) / '.tickets' / f'{ticket_id}.md'
+    content = ticket_path.read_text()
+    assert text not in content, f"Ticket should not contain '{text}'\nContent: {content}"
+
+
 @then(r'the created ticket should have field "(?P<field>[^"]+)" with value "(?P<value>[^"]+)"')
 def step_created_ticket_has_field(context, field, value):
     """Assert the most recently created ticket has a field with value."""
