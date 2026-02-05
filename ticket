@@ -1327,10 +1327,16 @@ cmd_query() {
     BEGIN { FS=": "; in_front=0 }
     FNR==1 {
         if (prev_file) emit()
-        field_count=0; in_front=0
+        field_count=0; in_front=0; frontmatter_done=0
         prev_file=FILENAME
     }
-    /^---$/ { in_front = !in_front; next }
+    /^---$/ {
+        if (!frontmatter_done) {
+            in_front = !in_front
+            if (!in_front) frontmatter_done = 1
+        }
+        next
+    }
     in_front && /^[a-zA-Z]/ {
         key = $1
         val = substr($0, length($1) + 3)

@@ -176,6 +176,30 @@ def step_ticket_has_notes(context, ticket_id):
         ticket_path.write_text(content)
 
 
+@given(r'ticket "(?P<ticket_id>[^"]+)" has markdown content with horizontal rule')
+def step_ticket_has_horizontal_rule(context, ticket_id):
+    """Add markdown content with a horizontal rule (---) to ticket."""
+    ticket_path = Path(context.test_dir) / '.tickets' / f'{ticket_id}.md'
+    content = ticket_path.read_text()
+
+    # Add markdown content with horizontal rule separator and YAML-like content after it
+    # This simulates the issue where content after --- looks like YAML frontmatter
+    additional_content = '''
+## Section 1
+
+Some content here.
+
+---
+
+## Implementation Plan
+
+Overview: This is a detailed plan
+Design Decision: We chose this approach
+'''
+    content += additional_content
+    ticket_path.write_text(content)
+
+
 @given(r'I am in subdirectory "(?P<subdir>[^"]+)"')
 def step_in_subdirectory(context, subdir):
     """Change to a subdirectory (creating it if needed)."""
@@ -589,6 +613,23 @@ def step_jsonl_deps_is_array(context):
                     f"deps field is not an array: {type(data['deps'])}"
                 return
     raise AssertionError("No JSONL line with deps field found")
+
+
+@then(r'the JSONL should have exactly (?P<count>\d+) fields')
+def step_jsonl_exact_field_count(context, count):
+    """Assert JSONL has exactly N fields."""
+    count = int(count)
+    lines = context.stdout.strip().split('\n')
+    assert lines, "No JSONL output"
+
+    for line in lines:
+        if line.strip():
+            data = json.loads(line)
+            actual_count = len(data.keys())
+            assert actual_count == count, \
+                f"Expected {count} fields but got {actual_count}\nFields: {list(data.keys())}\nFull line: {line}"
+            return
+    raise AssertionError("No JSONL output found")
 
 
 @then(r'the dep tree output should have (?P<first_id>[^\s]+) before (?P<second_id>[^\s]+)')
