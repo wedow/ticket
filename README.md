@@ -84,7 +84,8 @@ Commands:
   show <id>                Display ticket
   edit <id>                Open ticket in $EDITOR
   add-note <id> [text]     Append timestamped note (or pipe via stdin)
-  query [jq-filter]        Output tickets as JSON, optionally filtered
+  query [options] [jq-filter] Output tickets as JSON, optionally filtered
+    --include-full-path      Include absolute file path in each JSON object
   migrate-beads            Import tickets from .beads/issues.jsonl
   super <cmd> [args]       Bypass plugins, run built-in command directly
 

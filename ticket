@@ -1319,11 +1319,17 @@ cmd_edit() {
 }
 
 cmd_query() {
-    local filter="${1:-}"
+    local filter="" include_full_path=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --include-full-path) include_full_path=1; shift ;;
+            *) filter="$1"; shift ;;
+        esac
+    done
 
     # Generate all JSON in one awk pass
     local json_output
-    json_output=$(awk '
+    json_output=$(awk -v include_path="$include_full_path" '
     BEGIN { FS=": "; in_front=0 }
     FNR==1 {
         if (prev_file) emit()
@@ -1360,6 +1366,9 @@ cmd_query() {
                 } else {
                     printf "\"%s\":\"%s\"", key, val
                 }
+            }
+            if (include_path == 1) {
+                printf ",\"full_path\":\"%s\"", prev_file
             }
             printf "}\n"
         }
@@ -1502,7 +1511,8 @@ Commands:
   show <id>                Display ticket
   edit <id>                Open ticket in \$EDITOR
   add-note <id> [text]     Append timestamped note (or pipe via stdin)
-  query [jq-filter]        Output tickets as JSON, optionally filtered
+  query [options] [jq-filter] Output tickets as JSON, optionally filtered
+    --include-full-path      Include absolute file path in each JSON object
   migrate-beads            Import tickets from .beads/issues.jsonl
   super <cmd> [args]       Bypass plugins, run built-in command directly
 EOF
