@@ -82,6 +82,10 @@ generate_id() {
     local dir_name
     dir_name=$(basename "$(pwd)")
 
+    # Sanitize: lowercase, strip non-alphanumeric (keep - and _), strip leading -/_
+    dir_name=$(echo "$dir_name" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-' | sed 's/^[-_]*//')
+    [[ -z "$dir_name" ]] && dir_name="tk"
+
     # Extract first letter of each hyphenated/underscored segment
     local prefix
     prefix=$(echo "$dir_name" | sed 's/[-_]/ /g' | awk '{for(i=1;i<=NF;i++) printf substr($i,1,1)}')
