@@ -91,6 +91,12 @@ Feature: Ticket Creation
     Then the command should succeed
     And the created ticket should have a valid created timestamp
 
+  Scenario: Ticket ID has no special characters from dot-prefixed directory
+    Given I am in subdirectory ".agents"
+    When I run "ticket create 'Dot prefix test'"
+    Then the command should succeed
+    And the output should match pattern "^[a-z0-9]+-[a-z0-9]{4}$"
+
   Scenario: Tickets directory created on demand
     Given the tickets directory does not exist
     When I run "ticket create 'First ticket'"
