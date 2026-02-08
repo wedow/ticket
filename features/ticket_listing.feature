@@ -26,6 +26,16 @@ Feature: Ticket Listing
     Then the command should succeed
     And the output should match pattern "list-0001\s+\[open\]\s+-\s+My ticket"
 
+  Scenario: List with ticket type filter
+    Given a ticket exists with ID "list-0001" and title "First" with type "epic"
+    And a ticket exists with ID "list-0002" and title "Second" with type "task"
+    And a ticket exists with ID "list-0003" and title "Third" with type "epic"
+    When I run "ticket ls -t epic"
+    Then the command should succeed
+    And the output should contain "list-0001"
+    And the output should not contain "list-0002"
+    And the output should contain "list-0003"
+
   Scenario: List with status filter
     Given a ticket exists with ID "list-0001" and title "Open ticket"
     And a ticket exists with ID "list-0002" and title "Closed ticket"

@@ -27,7 +27,7 @@ def get_ticket_script(context):
     return str(Path(context.project_dir) / 'ticket')
 
 
-def create_ticket(context, ticket_id, title, priority=2, parent=None):
+def create_ticket(context, ticket_id, title, typ='task', priority=2, parent=None):
     """Helper to create a ticket file."""
     tickets_dir = Path(context.test_dir) / '.tickets'
     tickets_dir.mkdir(parents=True, exist_ok=True)
@@ -39,7 +39,7 @@ status: open
 deps: []
 links: []
 created: 2024-01-01T00:00:00Z
-type: task
+type: {typ}
 priority: {priority}
 '''
     if parent:
@@ -90,6 +90,12 @@ def step_ticket_exists_with_priority(context, ticket_id, title, priority):
 def step_ticket_exists_with_parent(context, ticket_id, title, parent_id):
     """Create a ticket with given ID, title, and parent."""
     create_ticket(context, ticket_id, title, parent=parent_id)
+
+
+@given(r'a ticket exists with ID "(?P<ticket_id>[^"]+)" and title "(?P<title>[^"]+)" with type "(?P<typ>[^"]+)"')
+def step_ticket_exists_with_type(context, ticket_id, title, typ):
+    """Create a ticket with given ID, title, and type."""
+    create_ticket(context, ticket_id, title, typ=typ)
 
 
 @given(r'a ticket exists with ID "(?P<ticket_id>[^"]+)" and title "(?P<title>[^"]+)"')
