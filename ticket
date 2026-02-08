@@ -651,7 +651,7 @@ cmd_dep() {
 }
 
 cmd_ls() {
-    local status_filter="" assignee_filter="" tag_filter=""
+    local status_filter="" assignee_filter="" tag_filter="" type_filter=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --status=*) status_filter="${1#--status=}"; shift ;;
@@ -659,11 +659,17 @@ cmd_ls() {
             --assignee=*) assignee_filter="${1#--assignee=}"; shift ;;
             -T) tag_filter="$2"; shift 2 ;;
             --tag=*) tag_filter="${1#--tag=}"; shift ;;
+            -t) type_filter="$2"; shift 2 ;;
+            --type=*) type_filter="${1#--type=}"; shift ;;
             *) shift ;;
         esac
     done
 
-    awk -v status_filter="$status_filter" -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" '
+    awk -v status_filter="$status_filter" \
+        -v assignee_filter="$assignee_filter" \
+        -v tag_filter="$tag_filter" \
+        -v type_filter="$type_filter" \
+        '
     BEGIN { FS=": "; in_front=0 }
     FNR==1 {
         if (prev_file) emit()
@@ -672,6 +678,7 @@ cmd_ls() {
     }
     /^---$/ { in_front = !in_front; next }
     in_front && /^id:/ { id = $2 }
+    in_front && /^type:/ { type = $2 }
     in_front && /^status:/ { status = $2 }
     in_front && /^assignee:/ { assignee = $2 }
     in_front && /^tags:/ { tags = $2; gsub(/[\[\] ]/, "", tags) }
@@ -687,7 +694,12 @@ cmd_ls() {
         return 0
     }
     function emit() {
-        if (id != "" && (status_filter == "" || status == status_filter) && (assignee_filter == "" || assignee == assignee_filter) && (tag_filter == "" || has_tag(tags, tag_filter))) {
+        if (id != "" \
+            && (status_filter == "" || status == status_filter) \
+            && (assignee_filter == "" || assignee == assignee_filter) \
+            && (tag_filter == "" || has_tag(tags, tag_filter)) \
+            && (type_filter == "" || type == type_filter))
+        {
             deps_display = (deps != "") ? "[" deps "]" : "[]"
             gsub(/,/, ", ", deps_display)
             dep_str = (deps_display != "[]") ? " <- " deps_display : ""
@@ -1460,7 +1472,7 @@ Commands:
   undep <id> <dep-id>      Remove dependency
   link <id> <id> [id...]   Link tickets together (symmetric)
   unlink <id> <target-id>  Remove link between tickets
-  ls|list [--status=X] [-a X] [-T X]   List tickets
+  ls|list [--status=X] [-a X] [-T X] [-t X]   List tickets
   ready [-a X] [-T X]      List open/in-progress tickets with deps resolved
   blocked [-a X] [-T X]    List open/in-progress tickets with unresolved deps
   closed [--limit=N] [-a X] [-T X] List recently closed tickets (default 20, by mtime)
