@@ -46,3 +46,13 @@ Feature: Ticket Query
     When I run "ticket query"
     Then the command should succeed
     And the JSONL deps field should be a JSON array
+
+  Scenario: Query handles quoted tags in YAML
+    Given a ticket exists with ID "query-001" and title "Tagged ticket"
+    And ticket "query-001" has tags ["simplification-opportunity", "refactor"]
+    When I run "ticket query"
+    Then the command should succeed
+    And the output should be valid JSONL
+    And the JSONL tags field should be a JSON array
+    And the JSONL tags field should contain "simplification-opportunity"
+    And the JSONL tags field should contain "refactor"
