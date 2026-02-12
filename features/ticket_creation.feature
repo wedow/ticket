@@ -96,3 +96,13 @@ Feature: Ticket Creation
     When I run "ticket create 'First ticket'"
     Then the command should succeed
     And the tickets directory should exist
+
+  Scenario: Create ticket in dot-prefixed directory
+    Given I am in subdirectory ".nix"
+    When I run "ticket create 'Dot directory ticket'"
+    Then the command should succeed
+    And the output should match pattern "^[^.].*"
+    And a ticket file should exist with title "Dot directory ticket"
+    When I run "ticket list"
+    Then the command should succeed
+    And the output should contain "Dot directory ticket"

@@ -82,6 +82,9 @@ generate_id() {
     local dir_name
     dir_name=$(basename "$(pwd)")
 
+    # Strip a leading dot from the repo name (for example, .nix) so generated ticket files are not hidden.
+    dir_name=$(echo "$dir_name" | sed 's/^\.*//')
+
     # Extract first letter of each hyphenated/underscored segment
     local prefix
     prefix=$(echo "$dir_name" | sed 's/[-_]/ /g' | awk '{for(i=1;i<=NF;i++) printf substr($i,1,1)}')
