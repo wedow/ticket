@@ -157,7 +157,8 @@ ${field}: ${value}
 cmd_create() {
     ensure_dir
 
-    local title="" description="" design="" acceptance=""
+    local title_args=()
+    local description="" design="" acceptance=""
     local priority=2 issue_type="task" assignee="" external_ref="" parent="" tags=""
 
     # Default assignee to git user.name if available
@@ -176,7 +177,7 @@ cmd_create() {
             --parent) parent="$2"; shift 2 ;;
             --tags) tags="$2"; shift 2 ;;
             -*) echo "Unknown option: $1" >&2; return 1 ;;
-            *) title="$1"; shift ;;
+            *) title_args+=("$1"); shift;;
         esac
     done
 
@@ -187,7 +188,7 @@ cmd_create() {
         parent=$(basename "$parent_file" .md)
     fi
 
-    title="${title:-Untitled}"
+    title="${title_args[*]:-Untitled}"
     local id
     id=$(generate_id)
     local file="$TICKETS_DIR/${id}.md"
