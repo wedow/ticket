@@ -1,6 +1,7 @@
 # CLAUDE.md
 
-This project uses `tk` for ticket management.
+## Task Management
+'tk' is a CLI tool on PATH for task management. This project uses tickets to persistently manage all work items. Run 'tk help' for available commands and syntax. Tickets live in '.tickets/'.
 
 When adding/changing commands or flags, update:
 1. The `cmd_help()` function in `ticket`
