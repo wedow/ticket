@@ -1784,6 +1784,211 @@ cmd_migrate_beads() {
     '
 }
 
+cmd_stats() {
+    [[ ! -d "$TICKETS_DIR" ]] && { echo "No tickets directory"; return 0; }
+
+    local now_epoch
+    now_epoch=$(date +%s)
+
+    awk -v now_epoch="$now_epoch" '
+    BEGIN { FS=": "; in_front=0 }
+    FNR==1 {
+        if (prev_file) store()
+        id=""; status=""; title=""; priority=""; ticket_type=""; created=""; in_front=0
+        prev_file=FILENAME
+    }
+    /^---$/ { in_front = !in_front; next }
+    in_front && /^id:/ { id = $2 }
+    in_front && /^status:/ { status = $2 }
+    in_front && /^priority:/ { priority = $2 }
+    in_front && /^type:/ { ticket_type = $2 }
+    in_front && /^created:/ { created = $2 }
+    !in_front && /^# / && title == "" { title = substr($0, 3) }
+    function store() {
+        if (id == "") return
+        total++
+        statuses[status]++
+        t = (ticket_type != "") ? ticket_type : "task"
+        types[t]++
+        p = (priority != "") ? priority : 2
+        priorities[p]++
+
+        if (status != "closed") {
+            open_count++
+            # Parse created date for age calc (YYYY-MM-DDTHH:MM:SSZ)
+            if (created != "") {
+                gsub(/T.*/, "", created)
+                split(created, d, "-")
+                # Approximate epoch from date components
+                days_since = int((now_epoch - mktime(d[1] " " d[2]+0 " " d[3]+0 " 0 0 0")) / 86400)
+                if (days_since < 0) days_since = 0
+                total_age += days_since
+                age_count++
+                if (oldest_days == 0 || days_since > oldest_days) {
+                    oldest_days = days_since
+                    oldest_id = id
+                    oldest_title = title
+                }
+            }
+        }
+
+        # Check if closed recently (file mtime used via sorted input)
+        if (status == "closed" && created != "") {
+            closed_tickets[++closed_count] = id
+            closed_dates[closed_count] = created
+        }
+    }
+    END {
+        if (prev_file) store()
+
+        # Header
+        printf "\n  PROJECT HEALTH\n\n"
+
+        # Status breakdown
+        printf "  Status:\n"
+        status_order[1] = "open"; status_order[2] = "in_progress"
+        status_order[3] = "needs_testing"; status_order[4] = "closed"
+        for (i = 1; i <= 4; i++) {
+            s = status_order[i]
+            if (statuses[s] > 0) printf "    %-15s %d\n", s, statuses[s]
+        }
+        printf "    %-15s %d\n", "TOTAL", total
+
+        # Type breakdown
+        printf "\n  Types:\n"
+        type_order[1] = "epic"; type_order[2] = "feature"; type_order[3] = "task"
+        type_order[4] = "bug"; type_order[5] = "chore"
+        for (i = 1; i <= 5; i++) {
+            t = type_order[i]
+            if (types[t] > 0) printf "    %-15s %d\n", t, types[t]
+        }
+
+        # Priority breakdown
+        printf "\n  Priority:\n"
+        for (p = 0; p <= 4; p++) {
+            if (priorities[p] > 0) printf "    P%-14d %d\n", p, priorities[p]
+        }
+
+        # Age stats
+        if (age_count > 0) {
+            avg_age = int(total_age / age_count)
+            printf "\n  Open Tickets:\n"
+            printf "    %-15s %d\n", "Count", open_count
+            printf "    %-15s %d days\n", "Average age", avg_age
+            printf "    %-15s %d days (%s)\n", "Oldest", oldest_days, oldest_id
+        }
+
+        printf "\n"
+    }
+    ' "$TICKETS_DIR"/*.md 2>/dev/null
+}
+
+cmd_timeline() {
+    [[ ! -d "$TICKETS_DIR" ]] && { echo "No tickets directory"; return 0; }
+
+    local weeks=4
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --weeks=*) weeks="${1#--weeks=}"; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    # Determine if we should use colors
+    local use_color=1
+    [[ -n "${NO_COLOR:-}" ]] && use_color=0
+    [[ ! -t 1 ]] && use_color=0
+
+    # Get closed tickets with their file modification times (proxy for close date)
+    # Use created date from frontmatter as fallback
+    local cutoff_epoch
+    cutoff_epoch=$(( $(date +%s) - (weeks * 7 * 86400) ))
+
+    awk -v weeks="$weeks" -v use_color="$use_color" '
+    BEGIN { FS=": "; in_front=0 }
+    FNR==1 {
+        if (prev_file) store()
+        id=""; status=""; title=""; created=""; in_front=0
+        prev_file=FILENAME
+    }
+    /^---$/ { in_front = !in_front; next }
+    in_front && /^id:/ { id = $2 }
+    in_front && /^status:/ { status = $2 }
+    in_front && /^created:/ { created = $2 }
+    !in_front && /^# / && title == "" { title = substr($0, 3) }
+    function store() {
+        if (id == "" || status != "closed") return
+        if (created == "") return
+        # Extract date portion
+        date = created
+        gsub(/T.*/, "", date)
+        # Extract ISO week: use date components
+        split(date, d, "-")
+        yr = d[1]; mo = d[2]+0; dy = d[3]+0
+
+        # Compute day of year and ISO week (approximate)
+        days_in_month[1]=31; days_in_month[2]=28; days_in_month[3]=31
+        days_in_month[4]=30; days_in_month[5]=31; days_in_month[6]=30
+        days_in_month[7]=31; days_in_month[8]=31; days_in_month[9]=30
+        days_in_month[10]=31; days_in_month[11]=30; days_in_month[12]=31
+        if (yr % 4 == 0) days_in_month[2] = 29
+        doy = dy
+        for (m = 1; m < mo; m++) doy += days_in_month[m]
+        wk = int((doy - 1) / 7) + 1
+        week_label = yr "-W" sprintf("%02d", wk)
+
+        weekly_count[week_label]++
+        if (!(week_label in week_order)) {
+            week_idx++
+            week_order[week_label] = week_idx
+            ordered_weeks[week_idx] = week_label
+        }
+    }
+    END {
+        if (prev_file) store()
+
+        # Sort weeks and take last N
+        n = week_idx
+        for (i = 1; i <= n; i++) {
+            for (j = i + 1; j <= n; j++) {
+                if (ordered_weeks[i] > ordered_weeks[j]) {
+                    tmp = ordered_weeks[i]
+                    ordered_weeks[i] = ordered_weeks[j]
+                    ordered_weeks[j] = tmp
+                }
+            }
+        }
+
+        start = (n > weeks) ? n - weeks + 1 : 1
+        max_count = 0
+        for (i = start; i <= n; i++) {
+            w = ordered_weeks[i]
+            if (weekly_count[w] > max_count) max_count = weekly_count[w]
+        }
+        if (max_count == 0) max_count = 1
+
+        bar_width = 30
+        green = use_color ? "\033[32m" : ""
+        dim = use_color ? "\033[2m" : ""
+        reset = use_color ? "\033[0m" : ""
+
+        printf "\n  TICKETS CLOSED BY WEEK\n\n"
+        for (i = start; i <= n; i++) {
+            w = ordered_weeks[i]
+            c = weekly_count[w]
+            filled = int((c / max_count) * bar_width)
+            if (filled == 0 && c > 0) filled = 1
+
+            printf "  %s  %s", w, green
+            for (b = 1; b <= filled; b++) printf "█"
+            printf "%s %d\n", reset, c
+        }
+        if (n == 0) printf "  No closed tickets found.\n"
+        printf "\n"
+    }
+    ' "$TICKETS_DIR"/*.md 2>/dev/null
+}
+
 cmd_workflow() {
     cat << 'EOF'
 # Ticket Workflow Guide
@@ -1878,6 +2083,10 @@ Query (JSON):
     created, assignee, parent, notes, external_ref
   Body sections (## Heading) become snake_case fields.
 
+Analytics:
+  stats                      Project health at a glance
+  timeline [--weeks=N]       Tickets closed by week (default: 4 weeks)
+
 Other:
   workflow                   Ticket workflow guide (types, statuses, conventions)
   migrate-beads              Import from .beads/issues.jsonl
@@ -1930,6 +2139,8 @@ case "${1:-help}" in
     edit)   shift; cmd_edit "$@" ;;
     add-note) shift; cmd_add_note "$@" ;;
     query) shift; cmd_query "$@" ;;
+    stats)   cmd_stats ;;
+    timeline) shift; cmd_timeline "$@" ;;
     workflow) cmd_workflow ;;
     migrate-beads) shift; cmd_migrate_beads "$@" ;;
     help|--help|-h) cmd_help ;;
