@@ -275,7 +275,7 @@ cmd_create() {
 }
 
 # Valid statuses
-VALID_STATUSES="open in_progress closed"
+VALID_STATUSES="open in_progress needs_testing closed"
 
 validate_status() {
     local status="$1"
@@ -298,47 +298,54 @@ validate_priority() {
     return 1
 }
 
-cmd_status() {
-    if [[ $# -lt 2 ]]; then
-        echo "Usage: $(basename "$0") status <id> <status>" >&2
-        echo "Valid statuses: $VALID_STATUSES" >&2
-        return 1
-    fi
-
+propagate_status() {
     local id="$1"
-    local status="$2"
-
-    validate_status "$status" || return 1
-
     local file
-    file=$(ticket_path "$id") || return 1
+    file=$(ticket_path "$id" 2>/dev/null) || return 0
 
-    update_yaml_field "$file" "status" "$status"
-    echo "Updated $(basename "$file" .md) -> $status"
-}
+    # Get parent ID (strip any trailing comment)
+    local parent
+    parent=$(yaml_field "$file" "parent" | sed 's/ *#.*//' || true)
+    [[ -z "$parent" ]] && return 0
 
-cmd_start() {
-    if [[ $# -lt 1 ]]; then
-        echo "Usage: $(basename "$0") start <id>" >&2
-        return 1
+    local parent_file
+    parent_file=$(ticket_path "$parent" 2>/dev/null) || return 0
+
+    # Find all children of parent
+    local all_closed=1 all_testing_or_closed=1
+    for child_file in "$TICKETS_DIR"/*.md; do
+        local child_parent
+        child_parent=$(yaml_field "$child_file" "parent" | sed 's/ *#.*//' || true)
+        [[ "$child_parent" != "$parent" ]] && continue
+
+        local child_status
+        child_status=$(yaml_field "$child_file" "status" || true)
+        if [[ "$child_status" != "closed" ]]; then
+            all_closed=0
+            if [[ "$child_status" != "needs_testing" ]]; then
+                all_testing_or_closed=0
+            fi
+        fi
+    done
+
+    # Propagate status upward
+    if [[ $all_closed -eq 1 ]]; then
+        local current_parent_status
+        current_parent_status=$(yaml_field "$parent_file" "status" || true)
+        if [[ "$current_parent_status" != "closed" ]]; then
+            update_yaml_field "$parent_file" "status" "closed"
+            echo "  -> $(basename "$parent_file" .md) -> closed (all children closed)"
+            propagate_status "$parent"
+        fi
+    elif [[ $all_testing_or_closed -eq 1 ]]; then
+        local current_parent_status
+        current_parent_status=$(yaml_field "$parent_file" "status" || true)
+        if [[ "$current_parent_status" != "needs_testing" && "$current_parent_status" != "closed" ]]; then
+            update_yaml_field "$parent_file" "status" "needs_testing"
+            echo "  -> $(basename "$parent_file" .md) -> needs_testing (all children done or testing)"
+            propagate_status "$parent"
+        fi
     fi
-    cmd_status "$1" "in_progress"
-}
-
-cmd_close() {
-    if [[ $# -lt 1 ]]; then
-        echo "Usage: $(basename "$0") close <id>" >&2
-        return 1
-    fi
-    cmd_status "$1" "closed"
-}
-
-cmd_reopen() {
-    if [[ $# -lt 1 ]]; then
-        echo "Usage: $(basename "$0") reopen <id>" >&2
-        return 1
-    fi
-    cmd_status "$1" "open"
 }
 
 cmd_delete() {
@@ -722,9 +729,11 @@ cmd_dep() {
 cmd_ls() {
     [[ ! -d "$TICKETS_DIR" ]] && return 0
 
-    local status_filter="" assignee_filter="" tag_filter="" priority_filter="" type_filter=""
+    local status_filter="" assignee_filter="" tag_filter="" priority_filter="" type_filter="" group_by=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --group) group_by="workflow"; shift ;;
+            --group-by=*) group_by="${1#--group-by=}"; shift ;;
             --status=*) status_filter="${1#--status=}"; shift ;;
             -a) assignee_filter="$2"; shift 2 ;;
             --assignee=*) assignee_filter="${1#--assignee=}"; shift ;;
@@ -741,10 +750,15 @@ cmd_ls() {
     # Normalize priority filter (strip leading P if present)
     priority_filter="${priority_filter#P}"
 
-    awk -v status_filter="$status_filter" -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" -v priority_filter="$priority_filter" -v type_filter="$type_filter" '
+    # Determine if we should use colors
+    local use_color=1
+    [[ -n "${NO_COLOR:-}" ]] && use_color=0
+    [[ ! -t 1 ]] && use_color=0
+
+    awk -v status_filter="$status_filter" -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" -v priority_filter="$priority_filter" -v type_filter="$type_filter" -v use_color="$use_color" -v group_by="$group_by" '
     BEGIN { FS=": "; in_front=0 }
     FNR==1 {
-        if (prev_file) emit()
+        if (prev_file) store()
         id=""; status=""; title=""; deps=""; assignee=""; tags=""; priority=""; ticket_type=""; in_front=0
         prev_file=FILENAME
     }
@@ -760,19 +774,163 @@ cmd_ls() {
         gsub(/\[|\]| /, "", deps)
     }
     !in_front && /^# / && title == "" { title = substr($0, 3) }
-    END { if (prev_file) emit() }
     function has_tag(tags_str, tag,    i, n, arr) {
         n = split(tags_str, arr, ",")
         for (i = 1; i <= n; i++) if (arr[i] == tag) return 1
         return 0
     }
-    function emit() {
-        if (id != "" && (status_filter == "" || status == status_filter) && (assignee_filter == "" || assignee == assignee_filter) && (tag_filter == "" || has_tag(tags, tag_filter)) && (priority_filter == "" || priority == priority_filter) && (type_filter == "" || ticket_type == type_filter)) {
-            deps_display = (deps != "") ? "[" deps "]" : "[]"
-            gsub(/,/, ", ", deps_display)
-            dep_str = (deps_display != "[]") ? " <- " deps_display : ""
-            p = (priority != "") ? priority : 2
-            printf "%-8s [P%s][%s] - %s%s\n", id, p, status, title, dep_str
+    function store() {
+        if (id == "") return
+        # Always store for dep resolution
+        all_status[id] = status
+        all_deps[id] = deps
+        all_priority[id] = (priority != "") ? priority : 2
+        all_title[id] = title
+        all_assignee[id] = assignee
+        all_tags[id] = tags
+        all_type[id] = ticket_type
+    }
+    function deps_resolved(ticket_id,    d, n, arr, i) {
+        d = all_deps[ticket_id]
+        if (d == "") return 1
+        n = split(d, arr, ",")
+        for (i = 1; i <= n; i++) {
+            if (arr[i] != "" && all_status[arr[i]] != "closed") return 0
+        }
+        return 1
+    }
+    function workflow_group(ticket_id,    s) {
+        s = all_status[ticket_id]
+        if (s == "in_progress") return 1
+        if (s == "open" && deps_resolved(ticket_id)) return 2
+        if (s == "open") return 3
+        if (s == "needs_testing") return 4
+        if (s == "closed") return 5
+        return 6
+    }
+    function group_name(g, mode) {
+        if (mode == "workflow") {
+            if (g == 1) return "In Progress"
+            if (g == 2) return "Ready"
+            if (g == 3) return "Blocked"
+            if (g == 4) return "Needs Testing"
+            if (g == 5) return "Closed"
+        } else if (mode == "type") {
+            return g
+        } else if (mode == "status") {
+            return g
+        } else if (mode == "priority") {
+            return "P" g
+        }
+        return "Other"
+    }
+    function type_order(t) {
+        if (t == "epic") return 1
+        if (t == "feature") return 2
+        if (t == "task") return 3
+        if (t == "bug") return 4
+        if (t == "chore") return 5
+        return 6
+    }
+    function status_order(s) {
+        if (s == "in_progress") return 1
+        if (s == "open") return 2
+        if (s == "needs_testing") return 3
+        if (s == "closed") return 4
+        return 5
+    }
+    END {
+        if (prev_file) store()
+
+        # Filter and build output array
+        count = 0
+        for (id in all_status) {
+            status = all_status[id]
+            if (status_filter != "" && status != status_filter) continue
+            if (assignee_filter != "" && all_assignee[id] != assignee_filter) continue
+            if (tag_filter != "" && !has_tag(all_tags[id], tag_filter)) continue
+            if (priority_filter != "" && all_priority[id] != priority_filter) continue
+            if (type_filter != "" && all_type[id] != type_filter) continue
+
+            count++
+            p = all_priority[id]
+            deps = all_deps[id]
+            dep_str = (deps != "") ? " <- [" deps "]" : ""
+            gsub(/,/, ", ", dep_str)
+
+            ttype = all_type[id]
+            if (ttype == "") ttype = "task"
+
+            if (group_by == "workflow") {
+                grp = workflow_group(id)
+                sort_key = grp "" p "" id
+                grp_val = grp
+            } else if (group_by == "type") {
+                grp = type_order(ttype)
+                sort_key = grp "" p "" id
+                grp_val = ttype
+            } else if (group_by == "status") {
+                grp = status_order(status)
+                sort_key = grp "" p "" id
+                grp_val = status
+            } else if (group_by == "priority") {
+                sort_key = p "" status_order(status) "" id
+                grp_val = p
+            } else {
+                sort_key = status_order(status) "" p "" id
+                grp_val = ""
+            }
+            data[count] = sort_key "|" id "|" p "|" status "|" all_title[id] "|" dep_str "|" ttype "|" grp_val
+        }
+
+        # Sort by sort_key
+        for (i = 1; i <= count; i++) {
+            for (j = i + 1; j <= count; j++) {
+                split(data[i], a, "|")
+                split(data[j], b, "|")
+                if (a[1] > b[1]) {
+                    tmp = data[i]; data[i] = data[j]; data[j] = tmp
+                }
+            }
+        }
+
+        # Output
+        last_group = ""
+        header_printed = 0
+        dim = use_color ? "\033[2m" : ""
+        reset_all = use_color ? "\033[0m" : ""
+
+        for (i = 1; i <= count; i++) {
+            split(data[i], f, "|")
+            id = f[2]; p = f[3]; status = f[4]; title = f[5]; dep_str = f[6]; ttype = f[7]; grp_val = f[8]
+
+            # Group headers
+            if (group_by != "") {
+                if (grp_val != last_group) {
+                    if (last_group != "") print ""
+                    header_color = use_color ? "\033[1m" : ""
+                    printf "%s=== %s ===%s\n", header_color, group_name(grp_val, group_by), reset_all
+                    printf "%s%-8s  %-2s  %-10s  %-13s  %s%s\n", dim, "ID", "P", "TYPE", "STATUS", "TITLE", reset_all
+                    last_group = grp_val
+                }
+            } else if (!header_printed) {
+                printf "%s%-8s  %-2s  %-10s  %-13s  %s%s\n", dim, "ID", "P", "TYPE", "STATUS", "TITLE", reset_all
+                header_printed = 1
+            }
+
+            # Color codes
+            reset = use_color ? "\033[0m" : ""
+            if (use_color) {
+                if (status == "in_progress") color = "\033[33m"      # yellow
+                else if (status == "open") color = "\033[0m"         # default
+                else if (status == "needs_testing") color = "\033[36m" # cyan
+                else if (status == "closed") color = "\033[32m"      # green
+                else color = ""
+            } else {
+                color = ""
+            }
+
+            printf "%-8s  P%s  %-10s  %s%-13s%s  %s%s\n", id, p, ttype, color, status, reset, title, dep_str
         }
     }
     ' "$TICKETS_DIR"/*.md 2>/dev/null
@@ -781,9 +939,10 @@ cmd_ls() {
 cmd_ready() {
     [[ ! -d "$TICKETS_DIR" ]] && return 0
 
-    local assignee_filter="" tag_filter=""
+    local assignee_filter="" tag_filter="" open_mode=0
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --open) open_mode=1; shift ;;
             -a) assignee_filter="$2"; shift 2 ;;
             --assignee=*) assignee_filter="${1#--assignee=}"; shift ;;
             -T) tag_filter="$2"; shift 2 ;;
@@ -792,11 +951,12 @@ cmd_ready() {
         esac
     done
 
-    awk -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" '
+    awk -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" -v open_mode="$open_mode" '
     BEGIN { FS=": "; in_front=0 }
     FNR==1 {
         if (prev_file) store()
-        id=""; status=""; title=""; deps=""; priority=""; assignee=""; tags=""; in_front=0
+        id=""; status=""; title=""; deps=""; priority=""; assignee=""; tags=""
+        parent=""; ticket_type=""; in_front=0
         prev_file=FILENAME
     }
     /^---$/ { in_front = !in_front; next }
@@ -804,7 +964,9 @@ cmd_ready() {
     in_front && /^status:/ { status = $2 }
     in_front && /^priority:/ { priority = $2 }
     in_front && /^assignee:/ { assignee = $2 }
-    in_front && /^tags:/ { tags = $2; gsub(/\[|\]| /, "", tags) }
+    in_front && /^tags:/ { tags = $2; gsub(/[\[\] ]/, "", tags) }
+    in_front && /^parent:/ { parent = $2; sub(/ *#.*/, "", parent) }
+    in_front && /^type:/ { ticket_type = $2 }
     in_front && /^deps:/ {
         deps = $2
         gsub(/\[|\]| /, "", deps)
@@ -823,7 +985,16 @@ cmd_ready() {
             priorities[id] = (priority != "") ? priority : 2
             assignees[id] = assignee
             all_tags[id] = tags
+            parents[id] = parent
+            types[id] = ticket_type
         }
+    }
+    function parent_chain_active(tid,    p) {
+        p = parents[tid]
+        if (p == "") return 1
+        if (!(p in statuses)) return 1
+        if (statuses[p] != "in_progress") return 0
+        return parent_chain_active(p)
     }
     END {
         if (prev_file) store()
@@ -833,6 +1004,10 @@ cmd_ready() {
             if (status != "open" && status != "in_progress") continue
             if (assignee_filter != "" && assignees[id] != assignee_filter) continue
             if (tag_filter != "" && !has_tag(all_tags[id], tag_filter)) continue
+
+            # Hierarchy gating: parent chain must be in_progress (unless --open)
+            if (!open_mode && !parent_chain_active(id)) continue
+
 
             deps = deps_raw[id]
             ready = 1
@@ -1377,7 +1552,7 @@ cmd_edit() {
     if [[ $# -lt 1 ]]; then
         echo "Usage: $(basename "$0") edit <id> [options]" >&2
         echo "Options: --title, -d/--description, --design, --acceptance," >&2
-        echo "         -t/--type, -p/--priority, -a/--assignee," >&2
+        echo "         -s/--status, -t/--type, -p/--priority, -a/--assignee," >&2
         echo "         --external-ref, --parent, --tags" >&2
         return 1
     fi
@@ -1391,13 +1566,13 @@ cmd_edit() {
     if [[ $# -eq 0 ]]; then
         echo "Usage: $(basename "$0") edit <id> [options]" >&2
         echo "Options: --title, -d/--description, --design, --acceptance," >&2
-        echo "         -t/--type, -p/--priority, -a/--assignee," >&2
+        echo "         -s/--status, -t/--type, -p/--priority, -a/--assignee," >&2
         echo "         --external-ref, --parent, --tags" >&2
         return 1
     fi
 
     local title="" description="" design="" acceptance=""
-    local priority="" issue_type="" assignee="" external_ref="" parent="" tags=""
+    local priority="" issue_type="" assignee="" external_ref="" parent="" tags="" status=""
     local has_title=0 has_desc=0 has_design=0 has_accept=0
 
     while [[ $# -gt 0 ]]; do
@@ -1408,6 +1583,7 @@ cmd_edit() {
             --acceptance) acceptance="$2"; has_accept=1; shift 2 ;;
             -p|--priority) priority="$2"; shift 2 ;;
             -t|--type) issue_type="$2"; shift 2 ;;
+            -s|--status) status="$2"; shift 2 ;;
             -a|--assignee) assignee="$2"; shift 2 ;;
             --external-ref) external_ref="$2"; shift 2 ;;
             --parent) parent="$2"; shift 2 ;;
@@ -1417,8 +1593,9 @@ cmd_edit() {
         esac
     done
 
-    # Validate priority if provided
+    # Validate fields if provided
     [[ -n "$priority" ]] && { validate_priority "$priority" || return 1; }
+    [[ -n "$status" ]] && { validate_status "$status" || return 1; }
 
     # Update YAML fields
     [[ -n "$priority" ]] && update_yaml_field "$file" "priority" "$priority"
@@ -1427,6 +1604,7 @@ cmd_edit() {
     [[ -n "$external_ref" ]] && update_yaml_field "$file" "external-ref" "$external_ref"
     [[ -n "$parent" ]] && update_yaml_field "$file" "parent" "$parent"
     [[ -n "$tags" ]] && update_yaml_field "$file" "tags" "[${tags//,/, }]"
+    [[ -n "$status" ]] && update_yaml_field "$file" "status" "$status"
 
     # Update markdown content
     [[ $has_title -eq 1 ]] && update_title "$file" "$title"
@@ -1435,6 +1613,11 @@ cmd_edit() {
     [[ $has_accept -eq 1 ]] && update_section "$file" "Acceptance Criteria" "$acceptance"
 
     echo "Updated $(basename "$file" .md)"
+
+    # Propagate terminal statuses upward
+    if [[ "$status" == "needs_testing" || "$status" == "closed" ]]; then
+        propagate_status "$id"
+    fi
 }
 
 cmd_query() {
@@ -1442,16 +1625,22 @@ cmd_query() {
 
     local filter="${1:-}"
 
-    # Generate all JSON in one awk pass
+    # Generate all JSON in one awk pass, including body content
     local json_output
     json_output=$(awk '
     BEGIN { FS=": "; in_front=0 }
     FNR==1 {
         if (prev_file) emit()
-        field_count=0; in_front=0
+        field_count=0; in_front=0; past_front=0
+        title=""; description=""; current_section=""; section_content=""
+        delete sections
         prev_file=FILENAME
     }
-    /^---$/ { in_front = !in_front; next }
+    /^---$/ {
+        if (in_front) past_front=1
+        in_front = !in_front
+        next
+    }
     in_front && /^[a-zA-Z]/ {
         key = $1
         val = substr($0, length($1) + 3)
@@ -1460,7 +1649,42 @@ cmd_query() {
         field_keys[field_count] = key
         field_vals[field_count] = val
     }
+    past_front && /^# / && title == "" {
+        title = substr($0, 3)
+        current_section = "description"
+        next
+    }
+    past_front && /^## / {
+        # Save previous section
+        if (current_section != "" && section_content != "") {
+            gsub(/^[\n]+|[\n]+$/, "", section_content)
+            sections[current_section] = section_content
+        }
+        # Start new section
+        current_section = tolower(substr($0, 4))
+        gsub(/^ +| +$/, "", current_section)
+        gsub(/ /, "_", current_section)
+        section_content = ""
+        next
+    }
+    past_front && current_section != "" {
+        section_content = section_content $0 "\n"
+    }
+    function json_escape(s) {
+        gsub(/\\/, "\\\\", s)
+        gsub(/"/, "\\\"", s)
+        gsub(/\n/, "\\n", s)
+        gsub(/\r/, "\\r", s)
+        gsub(/\t/, "\\t", s)
+        return s
+    }
     function emit() {
+        # Save last section
+        if (current_section != "" && section_content != "") {
+            gsub(/^[\n]+|[\n]+$/, "", section_content)
+            sections[current_section] = section_content
+        }
+
         if (field_count > 0) {
             printf "{"
             for (i = 1; i <= field_count; i++) {
@@ -1479,8 +1703,16 @@ cmd_query() {
                     }
                     printf "]"
                 } else {
-                    printf "\"%s\":\"%s\"", key, val
+                    printf "\"%s\":\"%s\"", key, json_escape(val)
                 }
+            }
+            # Add title
+            if (title != "") {
+                printf ",\"title\":\"%s\"", json_escape(title)
+            }
+            # Add sections
+            for (sec in sections) {
+                printf ",\"%s\":\"%s\"", sec, json_escape(sections[sec])
             }
             printf "}\n"
         }
@@ -1552,74 +1784,354 @@ cmd_migrate_beads() {
     '
 }
 
+cmd_stats() {
+    [[ ! -d "$TICKETS_DIR" ]] && { echo "No tickets directory"; return 0; }
+
+    local now_epoch
+    now_epoch=$(date +%s)
+
+    awk -v now_epoch="$now_epoch" '
+    BEGIN { FS=": "; in_front=0 }
+    FNR==1 {
+        if (prev_file) store()
+        id=""; status=""; title=""; priority=""; ticket_type=""; created=""; in_front=0
+        prev_file=FILENAME
+    }
+    /^---$/ { in_front = !in_front; next }
+    in_front && /^id:/ { id = $2 }
+    in_front && /^status:/ { status = $2 }
+    in_front && /^priority:/ { priority = $2 }
+    in_front && /^type:/ { ticket_type = $2 }
+    in_front && /^created:/ { created = $2 }
+    !in_front && /^# / && title == "" { title = substr($0, 3) }
+    function store() {
+        if (id == "") return
+        total++
+        statuses[status]++
+        t = (ticket_type != "") ? ticket_type : "task"
+        types[t]++
+        p = (priority != "") ? priority : 2
+        priorities[p]++
+
+        if (status != "closed") {
+            open_count++
+            # Parse created date for age calc (YYYY-MM-DDTHH:MM:SSZ)
+            if (created != "") {
+                gsub(/T.*/, "", created)
+                split(created, d, "-")
+                # Approximate epoch from date components
+                days_since = int((now_epoch - mktime(d[1] " " d[2]+0 " " d[3]+0 " 0 0 0")) / 86400)
+                if (days_since < 0) days_since = 0
+                total_age += days_since
+                age_count++
+                if (oldest_days == 0 || days_since > oldest_days) {
+                    oldest_days = days_since
+                    oldest_id = id
+                    oldest_title = title
+                }
+            }
+        }
+
+        # Check if closed recently (file mtime used via sorted input)
+        if (status == "closed" && created != "") {
+            closed_tickets[++closed_count] = id
+            closed_dates[closed_count] = created
+        }
+    }
+    END {
+        if (prev_file) store()
+
+        # Header
+        printf "\n  PROJECT HEALTH\n\n"
+
+        # Status breakdown
+        printf "  Status:\n"
+        status_order[1] = "open"; status_order[2] = "in_progress"
+        status_order[3] = "needs_testing"; status_order[4] = "closed"
+        for (i = 1; i <= 4; i++) {
+            s = status_order[i]
+            if (statuses[s] > 0) printf "    %-15s %d\n", s, statuses[s]
+        }
+        printf "    %-15s %d\n", "TOTAL", total
+
+        # Type breakdown
+        printf "\n  Types:\n"
+        type_order[1] = "epic"; type_order[2] = "feature"; type_order[3] = "task"
+        type_order[4] = "bug"; type_order[5] = "chore"
+        for (i = 1; i <= 5; i++) {
+            t = type_order[i]
+            if (types[t] > 0) printf "    %-15s %d\n", t, types[t]
+        }
+
+        # Priority breakdown
+        printf "\n  Priority:\n"
+        for (p = 0; p <= 4; p++) {
+            if (priorities[p] > 0) printf "    P%-14d %d\n", p, priorities[p]
+        }
+
+        # Age stats
+        if (age_count > 0) {
+            avg_age = int(total_age / age_count)
+            printf "\n  Open Tickets:\n"
+            printf "    %-15s %d\n", "Count", open_count
+            printf "    %-15s %d days\n", "Average age", avg_age
+            printf "    %-15s %d days (%s)\n", "Oldest", oldest_days, oldest_id
+        }
+
+        printf "\n"
+    }
+    ' "$TICKETS_DIR"/*.md 2>/dev/null
+}
+
+cmd_timeline() {
+    [[ ! -d "$TICKETS_DIR" ]] && { echo "No tickets directory"; return 0; }
+
+    local weeks=4
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --weeks=*) weeks="${1#--weeks=}"; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    # Determine if we should use colors
+    local use_color=1
+    [[ -n "${NO_COLOR:-}" ]] && use_color=0
+    [[ ! -t 1 ]] && use_color=0
+
+    # Get closed tickets with their file modification times (proxy for close date)
+    # Use created date from frontmatter as fallback
+    local cutoff_epoch
+    cutoff_epoch=$(( $(date +%s) - (weeks * 7 * 86400) ))
+
+    awk -v weeks="$weeks" -v use_color="$use_color" '
+    BEGIN { FS=": "; in_front=0 }
+    FNR==1 {
+        if (prev_file) store()
+        id=""; status=""; title=""; created=""; in_front=0
+        prev_file=FILENAME
+    }
+    /^---$/ { in_front = !in_front; next }
+    in_front && /^id:/ { id = $2 }
+    in_front && /^status:/ { status = $2 }
+    in_front && /^created:/ { created = $2 }
+    !in_front && /^# / && title == "" { title = substr($0, 3) }
+    function store() {
+        if (id == "" || status != "closed") return
+        if (created == "") return
+        # Extract date portion
+        date = created
+        gsub(/T.*/, "", date)
+        # Extract ISO week: use date components
+        split(date, d, "-")
+        yr = d[1]; mo = d[2]+0; dy = d[3]+0
+
+        # Compute day of year and ISO week (approximate)
+        days_in_month[1]=31; days_in_month[2]=28; days_in_month[3]=31
+        days_in_month[4]=30; days_in_month[5]=31; days_in_month[6]=30
+        days_in_month[7]=31; days_in_month[8]=31; days_in_month[9]=30
+        days_in_month[10]=31; days_in_month[11]=30; days_in_month[12]=31
+        if (yr % 4 == 0) days_in_month[2] = 29
+        doy = dy
+        for (m = 1; m < mo; m++) doy += days_in_month[m]
+        wk = int((doy - 1) / 7) + 1
+        week_label = yr "-W" sprintf("%02d", wk)
+
+        weekly_count[week_label]++
+        if (!(week_label in week_order)) {
+            week_idx++
+            week_order[week_label] = week_idx
+            ordered_weeks[week_idx] = week_label
+        }
+    }
+    END {
+        if (prev_file) store()
+
+        # Sort weeks and take last N
+        n = week_idx
+        for (i = 1; i <= n; i++) {
+            for (j = i + 1; j <= n; j++) {
+                if (ordered_weeks[i] > ordered_weeks[j]) {
+                    tmp = ordered_weeks[i]
+                    ordered_weeks[i] = ordered_weeks[j]
+                    ordered_weeks[j] = tmp
+                }
+            }
+        }
+
+        start = (n > weeks) ? n - weeks + 1 : 1
+        max_count = 0
+        for (i = start; i <= n; i++) {
+            w = ordered_weeks[i]
+            if (weekly_count[w] > max_count) max_count = weekly_count[w]
+        }
+        if (max_count == 0) max_count = 1
+
+        bar_width = 30
+        green = use_color ? "\033[32m" : ""
+        dim = use_color ? "\033[2m" : ""
+        reset = use_color ? "\033[0m" : ""
+
+        printf "\n  TICKETS CLOSED BY WEEK\n\n"
+        for (i = start; i <= n; i++) {
+            w = ordered_weeks[i]
+            c = weekly_count[w]
+            filled = int((c / max_count) * bar_width)
+            if (filled == 0 && c > 0) filled = 1
+
+            printf "  %s  %s", w, green
+            for (b = 1; b <= filled; b++) printf "█"
+            printf "%s %d\n", reset, c
+        }
+        if (n == 0) printf "  No closed tickets found.\n"
+        printf "\n"
+    }
+    ' "$TICKETS_DIR"/*.md 2>/dev/null
+}
+
+cmd_workflow() {
+    cat << 'EOF'
+# Ticket Workflow Guide
+
+## Ticket Types
+- task: Default type for work items
+- epic: Container for related tasks, provides hierarchy
+- feature: New functionality
+- bug: Defect fix
+- chore: Maintenance work
+
+## Statuses
+- open: Not started
+- in_progress: Actively being worked on
+- needs_testing: Implementation complete, awaiting verification
+- closed: Done
+
+## Readiness Rules (tk ready)
+A ticket appears in `tk ready` when:
+1. Status is open or in_progress
+2. All dependencies (deps) are closed
+3. Parent chain is in_progress (use --open to bypass)
+
+## Status Propagation
+When a ticket is set to needs_testing or closed, the system checks siblings:
+- If all siblings are needs_testing or closed -> parent becomes needs_testing
+- If all siblings are closed -> parent becomes closed
+This cascades up the hierarchy automatically.
+
+## Ticket Structure
+Tickets are markdown files with YAML frontmatter in .tickets/
+Required fields: id, status, deps, created, type, priority
+Optional fields: assignee, parent, tags, links, external-ref
+
+## Working Conventions
+1. Start work: `tk edit <id> -s in_progress`
+2. Create child tasks under epics with --parent
+3. Use parent tickets to organize work hierarchically
+4. Mark complete: `tk edit <id> -s needs_testing` then `tk edit <id> -s closed`
+5. Use `tk ready` to see what's available to work on
+
+## Commit Format
+Include ticket ID in commit messages:
+  <type>(<scope>): <description> [<ticket-id>]
+Example: feat(auth): add login flow [t-abc1]
+EOF
+}
+
 cmd_help() {
     local cmd
     cmd=$(basename "$0")
     cat << EOF
-$cmd - minimal ticket system with dependency tracking
+$cmd - ticket management CLI
 
 Usage: $cmd <command> [args]
 
-Commands:
-  create [title] [options] Create ticket (interactive if no title)
-    -d, --description      Description text
-    --design               Design notes
-    --acceptance           Acceptance criteria
-    -t, --type             Type (bug|feature|task|epic|chore) [default: task]
-    -p, --priority         Priority 0-4, 0=highest [default: 2]
-    -a, --assignee         Assignee
-    --external-ref         External reference (e.g., gh-123, JIRA-456)
-    --parent               Parent ticket ID
-    --tags                 Comma-separated tags (e.g., --tags ui,backend,urgent)
-  start <id>               Set status to in_progress
-  close <id>               Set status to closed
-  reopen <id>              Set status to open
-  delete <id> [id...]      Delete ticket file(s)
-  status <id> <status>     Update status (open|in_progress|closed)
-  dep <id> <dep-id>        Add dependency (id depends on dep-id)
-  dep tree [--full] <id>   Show dependency tree (--full disables dedup)
-  dep cycle                Find dependency cycles in open tickets
-  undep <id> <dep-id>      Remove dependency
-  link <id> <id> [id...]   Link tickets together (symmetric)
-  unlink <id> <target-id>  Remove link between tickets
-  ls [--status=X] [-a X] [-T X] [-P X] [-t X]  List tickets
-  ready [-a X] [-T X]      List open/in-progress tickets with deps resolved
-  blocked [-a X] [-T X]    List open/in-progress tickets with unresolved deps
-  closed [--limit=N] [-a X] [-T X] List recently closed tickets (default 20, by mtime)
-  show <id>                Display ticket
-  edit <id> [options]      Update ticket fields
-    --title                New title
-    -d, --description      Description text
-    --design               Design notes
-    --acceptance           Acceptance criteria
-    -t, --type             Type (bug|feature|task|epic|chore)
-    -p, --priority         Priority 0-4
-    -a, --assignee         Assignee
-    --external-ref         External reference
-    --parent               Parent ticket ID
-    --tags                 Comma-separated tags
-  add-note <id> [text]     Append timestamped note (or pipe via stdin)
-  query [jq-filter]        Output tickets as JSON, optionally filtered
-  migrate-beads            Import tickets from .beads/issues.jsonl
+Viewing:
+  show <id>                  Display ticket details
+  ls|list [filters]          List tickets (default: open only)
+  ready [filters]            Tickets with all deps resolved and parent in_progress
+  blocked [filters]          Tickets with unresolved deps
+  closed [--limit=N] [filters]  Recently closed (default limit: 20)
 
-Tickets stored as markdown files in .tickets/
-Supports partial ID matching (e.g., '$cmd show 5c4' matches 'nw-5c46')
+Creating & Editing:
+  create [title] [options]   Create ticket (interactive if no title)
+  edit <id> [options]        Update ticket fields
+  add-note <id> [text]       Append timestamped note (stdin if no text)
+  delete <id> [id...]        Delete ticket(s)
+
+Dependencies & Links:
+  dep <id> <dep-id>          Add dependency (id depends on dep-id)
+  undep <id> <dep-id>        Remove dependency
+  dep tree [--full] <id>     Show dependency tree
+  dep cycle                  Find cycles in open tickets
+  link <id> <id> [id...]     Link tickets (symmetric)
+  unlink <id> <target-id>    Remove link
+
+Query (JSON):
+  query [jq-filter]          Output all tickets as JSONL (one JSON object per line)
+
+  The optional filter is passed to jq's select() automatically.
+  Do NOT wrap your filter in select() — just provide the expression.
+  Always use single quotes for the filter to avoid bash issues with ! and ".
+
+  $cmd query                                        # all tickets as JSONL
+  $cmd query '.status == "open"'                    # filter by field
+  $cmd query '.type == "bug" and .priority <= 1'    # compound filter
+  $cmd query '.title | test("deploy"; "i")'         # regex search
+
+  JSON fields: id, status, type, priority, title, description,
+    design, acceptance_criteria, deps[], links[], tags[],
+    created, assignee, parent, notes, external_ref
+  Body sections (## Heading) become snake_case fields.
+
+Analytics:
+  stats                      Project health at a glance
+  timeline [--weeks=N]       Tickets closed by week (default: 4 weeks)
+
+Other:
+  workflow                   Ticket workflow guide (types, statuses, conventions)
+  migrate-beads              Import from .beads/issues.jsonl
+
+Filter flags for ls:
+  --status=X         open | in_progress | needs_testing | closed
+  -t, --type=X       bug | feature | task | epic | chore
+  -P, --priority=X   0 (critical) through 4 (backlog)
+  -a, --assignee=X   Filter by assignee
+  -T, --tag=X        Filter by tag
+  --parent=X         Children of ticket X
+  --group-by=X       Group by: workflow | type | status | priority
+
+Filter flags for ready, blocked, closed:
+  -a, --assignee=X   Filter by assignee
+  -T, --tag=X        Filter by tag
+  ready also accepts: --open (skip parent hierarchy checks)
+
+Create & edit options:
+  -d, --description    Description text
+  --design             Design notes
+  --acceptance         Acceptance criteria
+  -t, --type           bug | feature | task | epic | chore [default: task]
+  -p, --priority       0-4, 0=highest [default: 2]
+  -s, --status         open | in_progress | needs_testing | closed (edit only)
+  --title              New title (edit only)
+  -a, --assignee       Assignee
+  --parent             Parent ticket ID
+  --tags               Comma-separated (e.g., --tags ui,backend)
+  --external-ref       External reference (e.g., gh-123)
+
+Partial ID matching: '$cmd show 5c4' matches 'nw-5c46'
+Tickets stored as markdown in .tickets/
 EOF
 }
 
 # Main dispatch
 case "${1:-help}" in
     create) shift; cmd_create "$@" ;;
-    start)  shift; cmd_start "$@" ;;
-    close)  shift; cmd_close "$@" ;;
     delete) shift; cmd_delete "$@" ;;
-    reopen) shift; cmd_reopen "$@" ;;
-    status) shift; cmd_status "$@" ;;
     dep)    shift; cmd_dep "$@" ;;
     undep)  shift; cmd_undep "$@" ;;
     link)   shift; cmd_link "$@" ;;
     unlink) shift; cmd_unlink "$@" ;;
-    ls)     shift; cmd_ls "$@" ;;
+    ls|list) shift; cmd_ls "$@" ;;
     ready)  shift; cmd_ready "$@" ;;
     blocked) shift; cmd_blocked "$@" ;;
     closed) shift; cmd_closed "$@" ;;
@@ -1627,6 +2139,9 @@ case "${1:-help}" in
     edit)   shift; cmd_edit "$@" ;;
     add-note) shift; cmd_add_note "$@" ;;
     query) shift; cmd_query "$@" ;;
+    stats)   cmd_stats ;;
+    timeline) shift; cmd_timeline "$@" ;;
+    workflow) cmd_workflow ;;
     migrate-beads) shift; cmd_migrate_beads "$@" ;;
     help|--help|-h) cmd_help ;;
     *)

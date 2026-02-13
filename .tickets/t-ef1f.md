@@ -1,6 +1,6 @@
 ---
 id: t-ef1f
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-01-24T23:58:09Z
@@ -11,17 +11,16 @@ parent: t-ff45
 ---
 # Update status values
 
-Replace current statuses with open, in_progress, needs_testing, complete
+Add needs_testing status to existing workflow (backward compatible)
 
 ## Design
 
 Files: ticket
-- Update status validation to accept: open, in_progress, needs_testing, complete
-- Update cmd_close to set 'complete' instead of 'closed'
+- Update VALID_STATUSES to include needs_testing: "open in_progress needs_testing closed"
 - Add cmd_testing function to set needs_testing status
-- Update cmd_help with new statuses and testing command
+- Update cmd_help with new status and testing command
 
 ## Acceptance Criteria
 
-All four statuses validate, tk close sets complete, new tk testing command works
+needs_testing status validates, new tk testing command works, existing closed tickets unaffected
 

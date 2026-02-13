@@ -1,8 +1,9 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## Task Management
+'tk' is a CLI tool on PATH for task management. This project uses tickets to persistently manage all work items. Run 'tk help' for available commands and syntax. Tickets live in '.tickets/'.
 
-Run `tk help` for command reference. When adding/changing commands or flags, update:
+When adding/changing commands or flags, update:
 1. The `cmd_help()` function in `ticket`
 2. The Usage section in `README.md`
 

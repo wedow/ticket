@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Added
+- `list` alias for `ls` command
+- `needs_testing` status
+- `-s, --status` flag for `edit` command to change ticket status
+- Hierarchy gating: `ready` only shows tickets whose parent is `in_progress`
+- `--open` flag for `ready` to bypass hierarchy checks
+- Status propagation: `needs_testing`/`closed` auto-bubble up parent chain
+- `workflow` command outputs guide for LLM context
 - `-t, --type` filter flag for `ls` command
 - Interactive prompts when `tk create` is run with no arguments
 - Support `TICKETS_DIR` environment variable for custom tickets directory location
@@ -17,6 +24,9 @@
 ### Changed
 - `create` command now displays full ticket details on success instead of just the ID
 - `edit` command now uses CLI flags instead of opening $EDITOR
+
+### Removed
+- `start`, `testing`, `close`, `reopen`, `status` commands (use `edit -s` instead)
 
 ### Fixed
 - `update_yaml_field` now works on BSD/macOS (was using GNU sed syntax)

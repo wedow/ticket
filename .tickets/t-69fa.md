@@ -1,6 +1,6 @@
 ---
 id: t-69fa
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-01-24T23:58:09Z

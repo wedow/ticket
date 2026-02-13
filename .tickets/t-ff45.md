@@ -1,6 +1,6 @@
 ---
 id: t-ff45
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-01-24T23:57:49Z
@@ -14,7 +14,7 @@ Overhaul ticket workflow to support hierarchy gating, new statuses, and auto-pro
 
 ## Design
 
-Adds workstream type, new status flow (open→in_progress→needs_testing→complete), readiness rules based on parent status and Plan section presence, automatic upward status propagation, and tk workflow command for LLM guidance
+Adds workstream type, new status flow (open→in_progress→needs_testing→closed), readiness rules based on parent status and Plan section presence, automatic upward status propagation, and tk workflow command for LLM guidance
 
 ## Acceptance Criteria
 
