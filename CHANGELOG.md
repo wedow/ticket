@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Use POSIX-compliant bracket expressions in awk regexes for busybox compatibility
+
 ### Added
 - Plugin system: executables named `tk-<cmd>` or `ticket-<cmd>` in PATH are invoked automatically
 - `super` command to bypass plugins and run built-in commands directly

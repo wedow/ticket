@@ -316,7 +316,7 @@ cmd_dep_tree() {
     in_front && /^status:/ { status = $2 }
     in_front && /^deps:/ {
         deps = $2
-        gsub(/[\[\] ]/, "", deps)
+        gsub(/[][ ]/, "", deps)
     }
     !in_front && /^# / && title == "" { title = substr($0, 3) }
     function store() {
@@ -500,7 +500,7 @@ cmd_dep_cycle() {
     in_front && /^status:/ { status = $2 }
     in_front && /^deps:/ {
         deps = $2
-        gsub(/[\[\] ]/, "", deps)
+        gsub(/[][ ]/, "", deps)
     }
     !in_front && /^# / && title == "" { title = substr($0, 3) }
     function store() {
@@ -674,10 +674,10 @@ cmd_ls() {
     in_front && /^id:/ { id = $2 }
     in_front && /^status:/ { status = $2 }
     in_front && /^assignee:/ { assignee = $2 }
-    in_front && /^tags:/ { tags = $2; gsub(/[\[\] ]/, "", tags) }
+    in_front && /^tags:/ { tags = $2; gsub(/[][ ]/, "", tags) }
     in_front && /^deps:/ {
         deps = $2
-        gsub(/[\[\] ]/, "", deps)
+        gsub(/[][ ]/, "", deps)
     }
     !in_front && /^# / && title == "" { title = substr($0, 3) }
     END { if (prev_file) emit() }
@@ -721,10 +721,10 @@ cmd_ready() {
     in_front && /^status:/ { status = $2 }
     in_front && /^priority:/ { priority = $2 }
     in_front && /^assignee:/ { assignee = $2 }
-    in_front && /^tags:/ { tags = $2; gsub(/[\[\] ]/, "", tags) }
+    in_front && /^tags:/ { tags = $2; gsub(/[][ ]/, "", tags) }
     in_front && /^deps:/ {
         deps = $2
-        gsub(/[\[\] ]/, "", deps)
+        gsub(/[][ ]/, "", deps)
     }
     !in_front && /^# / && title == "" { title = substr($0, 3) }
     function has_tag(tags_str, tag,    i, n, arr) {
@@ -815,7 +815,7 @@ cmd_closed() {
     in_front && /^id:/ { id = $2 }
     in_front && /^status:/ { status = $2 }
     in_front && /^assignee:/ { assignee = $2 }
-    in_front && /^tags:/ { tags = $2; gsub(/[\[\] ]/, "", tags) }
+    in_front && /^tags:/ { tags = $2; gsub(/[][ ]/, "", tags) }
     !in_front && /^# / && title == "" { title = substr($0, 3) }
     function has_tag(tags_str, tag,    i, n, arr) {
         n = split(tags_str, arr, ",")
@@ -858,10 +858,10 @@ cmd_blocked() {
     in_front && /^status:/ { status = $2 }
     in_front && /^priority:/ { priority = $2 }
     in_front && /^assignee:/ { assignee = $2 }
-    in_front && /^tags:/ { tags = $2; gsub(/[\[\] ]/, "", tags) }
+    in_front && /^tags:/ { tags = $2; gsub(/[][ ]/, "", tags) }
     in_front && /^deps:/ {
         deps = $2
-        gsub(/[\[\] ]/, "", deps)
+        gsub(/[][ ]/, "", deps)
     }
     !in_front && /^# / && title == "" { title = substr($0, 3) }
     function has_tag(tags_str, tag,    i, n, arr) {
@@ -1028,7 +1028,7 @@ cmd_link() {
         }
         /^links:/ {
             # Parse existing links
-            gsub(/[\[\]]/, "", $0)
+            gsub(/[][]/, "", $0)
             sub(/^links: */, "", $0)
             m = split($0, existing, ", *")
             for (i = 1; i <= m; i++) {
@@ -1140,8 +1140,8 @@ cmd_show() {
     /^---$/ { in_front = !in_front; next }
     in_front && /^id:/ { id = $2 }
     in_front && /^status:/ { status = $2 }
-    in_front && /^deps:/ { deps = $2; gsub(/[\[\] ]/, "", deps) }
-    in_front && /^links:/ { links = $2; gsub(/[\[\] ]/, "", links) }
+    in_front && /^deps:/ { deps = $2; gsub(/[][ ]/, "", deps) }
+    in_front && /^links:/ { links = $2; gsub(/[][ ]/, "", links) }
     in_front && /^parent:/ { parent = $2 }
     !in_front && /^# / && title == "" { title = substr($0, 3) }
 
