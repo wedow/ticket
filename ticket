@@ -181,7 +181,7 @@ update_description() {
 cmd_create() {
     ensure_dir
 
-    local title="" description="" design="" acceptance=""
+    local title="" description="" design="" acceptance="" custom_id=""
     local priority=2 issue_type="task" assignee="" external_ref="" parent="" tags=""
 
     # Default assignee to git user.name if available
@@ -196,6 +196,7 @@ cmd_create() {
             -p|--priority) priority="$2"; shift 2 ;;
             -t|--type) issue_type="$2"; shift 2 ;;
             -a|--assignee) assignee="$2"; shift 2 ;;
+            --id) custom_id="$2"; shift 2 ;;
             --external-ref) external_ref="$2"; shift 2 ;;
             --parent) parent="$2"; shift 2 ;;
             --tags) tags="$2"; shift 2 ;;
@@ -230,7 +231,15 @@ cmd_create() {
     validate_priority "$priority" || return 1
 
     local id
-    id=$(generate_id)
+    if [[ -n "$custom_id" ]]; then
+        id="$custom_id"
+        if [[ -f "$TICKETS_DIR/${id}.md" ]]; then
+            echo "Error: ticket '$id' already exists" >&2
+            return 1
+        fi
+    else
+        id=$(generate_id)
+    fi
     local file="$TICKETS_DIR/${id}.md"
     local now
     now=$(_iso_date)
@@ -2114,6 +2123,7 @@ Create & edit options:
   -s, --status         open | in_progress | needs_testing | closed (edit only)
   --title              New title (edit only)
   -a, --assignee       Assignee
+  --id                 Custom ticket ID (e.g., --id c-my-feature) [default: auto-generated]
   --parent             Parent ticket ID
   --tags               Comma-separated (e.g., --tags ui,backend)
   --external-ref       External reference (e.g., gh-123)
