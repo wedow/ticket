@@ -59,6 +59,7 @@ Commands:
     -t, --type             Type (bug|feature|task|epic|chore) [default: task]
     -p, --priority         Priority 0-4, 0=highest [default: 2]
     -a, --assignee         Assignee [default: git user.name]
+    --id                   Custom ticket ID (e.g., --id my-feature) [default: auto-generated]
     --external-ref         External reference (e.g., gh-123, JIRA-456)
     --parent               Parent ticket ID
     --tags                 Comma-separated tags (e.g., --tags ui,backend,urgent)

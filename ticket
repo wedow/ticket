@@ -232,6 +232,10 @@ cmd_create() {
 
     local id
     if [[ -n "$custom_id" ]]; then
+        if [[ ! "$custom_id" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+            echo "Error: invalid ID '$custom_id' — only alphanumeric, hyphens, and underscores allowed" >&2
+            return 1
+        fi
         id="$custom_id"
         if [[ -f "$TICKETS_DIR/${id}.md" ]]; then
             echo "Error: ticket '$id' already exists" >&2

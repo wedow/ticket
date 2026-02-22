@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- `--id` flag for `create` command to set a custom ticket ID
 - `list` alias for `ls` command
 - `needs_testing` status
 - `-s, --status` flag for `edit` command to change ticket status
