@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- Extracted `edit`, `query`, and `migrate-beads` commands to plugins (ticket-extras)
+
 ### Added
 - Plugin system: executables named `tk-<cmd>` or `ticket-<cmd>` in PATH are invoked automatically
 - `super` command to bypass plugins and run built-in commands directly
@@ -10,6 +13,11 @@
 - Plugin metadata: `# tk-plugin:` comment for scripts, `--tk-describe` flag for binaries
 - Multi-package distribution: `ticket-core`, `ticket-extras`, and individual plugin packages
 - CI scripts for publishing to Homebrew tap and AUR
+
+### Plugins
+- ticket-edit 1.0.0: Open ticket in $EDITOR (extracted from core)
+- ticket-query 1.0.0: Output tickets as JSON, optionally filtered with jq (extracted from core)
+- ticket-migrate-beads 1.0.0: Import tickets from .beads/issues.jsonl (extracted from core)
 
 ## [0.3.2] - 2026-02-03
 
