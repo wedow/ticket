@@ -11,6 +11,11 @@ def before_all(context):
     # Store the project directory (where the ticket script lives)
     context.project_dir = Path(__file__).parent.parent.resolve()
 
+    # Add project plugins to PATH so extracted commands are found
+    plugins_dir = context.project_dir / 'plugins'
+    if plugins_dir.exists():
+        os.environ['PATH'] = str(plugins_dir) + ':' + os.environ.get('PATH', '')
+
 
 def before_scenario(context, scenario):
     """Create a fresh temporary directory for each scenario."""
