@@ -92,6 +92,20 @@ update_pkgbuild() {
     sed -i "s|^pkgrel=.*|pkgrel=1|" "$pkgbuild"
 }
 
+# Find symlinks in plugins/ that point to a given plugin, output install lines
+find_plugin_symlinks_aur() {
+    local target="$1"
+    for link in "$REPO_ROOT"/plugins/ticket-*; do
+        [[ -L "$link" ]] || continue
+        local link_target
+        link_target=$(readlink "$link")
+        if [[ "$link_target" == "ticket-$target" ]]; then
+            local alias_name="${link##*/}"
+            printf '\n    ln -s "ticket-%s" "$pkgdir/usr/bin/%s"' "$target" "$alias_name"
+        fi
+    done
+}
+
 # Generate PKGBUILD for a plugin
 generate_plugin_pkgbuild() {
     local plugin_name="$1"  # e.g., "query"
@@ -125,7 +139,7 @@ sha256sums=('$SHA256')
 
 package() {
     cd "ticket-\$pkgver"
-    install -Dm755 "plugins/ticket-$plugin_name" "\$pkgdir/usr/bin/ticket-$plugin_name"
+    install -Dm755 "plugins/ticket-$plugin_name" "\$pkgdir/usr/bin/ticket-$plugin_name"$(find_plugin_symlinks_aur "$plugin_name")
 }
 EOF
 }
@@ -144,10 +158,10 @@ main() {
     update_pkgbuild "$REPO_ROOT/pkg/aur/ticket-core/PKGBUILD" "$VERSION" "$SHA256"
     push_to_aur "ticket-core" "$REPO_ROOT/pkg/aur/ticket-core" || failed+=("ticket-core")
 
-    # 2. Publish individual plugins (all plugins in plugins/ directory)
+    # 2. Publish individual plugins (all plugins in plugins/ directory, skip symlinks)
     if [[ -d "$REPO_ROOT/plugins" ]]; then
         for plugin_file in "$REPO_ROOT"/plugins/ticket-*; do
-            [[ -f "$plugin_file" ]] || continue
+            [[ -f "$plugin_file" && ! -L "$plugin_file" ]] || continue
 
             local plugin_name="${plugin_file##*/ticket-}"
             echo ""

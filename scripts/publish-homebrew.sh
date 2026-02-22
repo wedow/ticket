@@ -10,6 +10,20 @@ SHA256="$2"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TAP_REPO="wedow/homebrew-tools"
 
+# Find symlinks in plugins/ that point to a given plugin, output Homebrew install_symlink lines
+find_plugin_symlinks() {
+    local target="$1"
+    for link in "$REPO_ROOT"/plugins/ticket-*; do
+        [[ -L "$link" ]] || continue
+        local link_target
+        link_target=$(readlink "$link")
+        if [[ "$link_target" == "ticket-$target" ]]; then
+            local alias_name="${link##*/}"
+            printf '\n    bin.install_symlink "ticket-%s" => "%s"' "$target" "$alias_name"
+        fi
+    done
+}
+
 # Parse plugin metadata from script file
 parse_plugin_metadata() {
     local plugin_file="$1"
@@ -44,7 +58,7 @@ class $class_name < Formula
   depends_on "ticket-core"
 
   def install
-    bin.install "plugins/ticket-$plugin_name"
+    bin.install "plugins/ticket-$plugin_name"$(find_plugin_symlinks "$plugin_name")
   end
 
   test do
@@ -85,10 +99,10 @@ class TicketCore < Formula
 end
 EOF
 
-    # 2. Generate plugin formulas (all plugins in plugins/ directory)
+    # 2. Generate plugin formulas (all plugins in plugins/ directory, skip symlinks)
     if [[ -d "$REPO_ROOT/plugins" ]]; then
         for plugin_file in "$REPO_ROOT"/plugins/ticket-*; do
-            [[ -f "$plugin_file" ]] || continue
+            [[ -f "$plugin_file" && ! -L "$plugin_file" ]] || continue
             local plugin_name="${plugin_file##*/ticket-}"
             echo "Generating formula for ticket-$plugin_name..."
             generate_plugin_formula "$plugin_name" "$plugin_file" "$formula_dir"
