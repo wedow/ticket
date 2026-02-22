@@ -87,6 +87,7 @@ Commands:
 
 Bundled plugins (ticket-extras):
   edit <id>                Open ticket in $EDITOR
+  ls|list [--status=X] [-a X] [-T X]   List tickets
   query [jq-filter]        Output tickets as JSON, optionally filtered (requires jq)
   migrate-beads            Import tickets from .beads/issues.jsonl (requires jq)
 

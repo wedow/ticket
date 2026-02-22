@@ -36,7 +36,7 @@ Feature: Ticket Directory Resolution
 
   Scenario: Error when no tickets directory for read command
     Given the tickets directory does not exist
-    When I run "ticket ls"
+    When I run "ticket show nonexistent"
     Then the command should fail
     And the output should contain "no .tickets directory found"
 

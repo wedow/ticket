@@ -650,53 +650,6 @@ cmd_dep() {
     echo "Added dependency: $(basename "$file" .md) -> $dep_id"
 }
 
-cmd_ls() {
-    local status_filter="" assignee_filter="" tag_filter=""
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --status=*) status_filter="${1#--status=}"; shift ;;
-            -a) assignee_filter="$2"; shift 2 ;;
-            --assignee=*) assignee_filter="${1#--assignee=}"; shift ;;
-            -T) tag_filter="$2"; shift 2 ;;
-            --tag=*) tag_filter="${1#--tag=}"; shift ;;
-            *) shift ;;
-        esac
-    done
-
-    awk -v status_filter="$status_filter" -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" '
-    BEGIN { FS=": "; in_front=0 }
-    FNR==1 {
-        if (prev_file) emit()
-        id=""; status=""; title=""; deps=""; assignee=""; tags=""; in_front=0
-        prev_file=FILENAME
-    }
-    /^---$/ { in_front = !in_front; next }
-    in_front && /^id:/ { id = $2 }
-    in_front && /^status:/ { status = $2 }
-    in_front && /^assignee:/ { assignee = $2 }
-    in_front && /^tags:/ { tags = $2; gsub(/[\[\] ]/, "", tags) }
-    in_front && /^deps:/ {
-        deps = $2
-        gsub(/[\[\] ]/, "", deps)
-    }
-    !in_front && /^# / && title == "" { title = substr($0, 3) }
-    END { if (prev_file) emit() }
-    function has_tag(tags_str, tag,    i, n, arr) {
-        n = split(tags_str, arr, ",")
-        for (i = 1; i <= n; i++) if (arr[i] == tag) return 1
-        return 0
-    }
-    function emit() {
-        if (id != "" && (status_filter == "" || status == status_filter) && (assignee_filter == "" || assignee == assignee_filter) && (tag_filter == "" || has_tag(tags, tag_filter))) {
-            deps_display = (deps != "") ? "[" deps "]" : "[]"
-            gsub(/,/, ", ", deps_display)
-            dep_str = (deps_display != "[]") ? " <- " deps_display : ""
-            printf "%-8s [%s] - %s%s\n", id, status, title, dep_str
-        }
-    }
-    ' "$TICKETS_DIR"/*.md 2>/dev/null
-}
-
 cmd_ready() {
     local assignee_filter="" tag_filter=""
     while [[ $# -gt 0 ]]; do
@@ -1366,7 +1319,6 @@ Commands:
   undep <id> <dep-id>      Remove dependency
   link <id> <id> [id...]   Link tickets together (symmetric)
   unlink <id> <target-id>  Remove link between tickets
-  ls|list [--status=X] [-a X] [-T X]   List tickets
   ready [-a X] [-T X]      List open/in-progress tickets with deps resolved
   blocked [-a X] [-T X]    List open/in-progress tickets with unresolved deps
   closed [--limit=N] [-a X] [-T X] List recently closed tickets (default 20, by mtime)
@@ -1439,7 +1391,6 @@ case "${1:-help}" in
     undep)  shift; cmd_undep "$@" ;;
     link)   shift; cmd_link "$@" ;;
     unlink) shift; cmd_unlink "$@" ;;
-    ls|list) shift; cmd_ls "$@" ;;
     ready)  shift; cmd_ready "$@" ;;
     blocked) shift; cmd_blocked "$@" ;;
     closed) shift; cmd_closed "$@" ;;

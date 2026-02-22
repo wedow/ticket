@@ -3,7 +3,7 @@
 ## [Unreleased]
 
 ### Changed
-- Extracted `edit`, `query`, and `migrate-beads` commands to plugins (ticket-extras)
+- Extracted `edit`, `ls`, `query`, and `migrate-beads` commands to plugins (ticket-extras)
 
 ### Added
 - Plugin system: executables named `tk-<cmd>` or `ticket-<cmd>` in PATH are invoked automatically
@@ -16,6 +16,7 @@
 
 ### Plugins
 - ticket-edit 1.0.0: Open ticket in $EDITOR (extracted from core)
+- ticket-ls 1.0.0: List tickets with optional filters (extracted from core); `ticket-list` symlink for alias
 - ticket-query 1.0.0: Output tickets as JSON, optionally filtered with jq (extracted from core)
 - ticket-migrate-beads 1.0.0: Import tickets from .beads/issues.jsonl (extracted from core)
 

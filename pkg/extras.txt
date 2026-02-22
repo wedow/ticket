@@ -6,5 +6,6 @@
 # query
 # migrate-beads
 edit
+ls
 query
 migrate-beads
