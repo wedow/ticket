@@ -115,7 +115,7 @@ ticket_path() {
 
     # Try partial match (anywhere in filename)
     local matches
-    matches=$(find "$TICKETS_DIR" -maxdepth 1 -name "*${id}*.md" 2>/dev/null | head -2)
+    matches=$(find -L "$TICKETS_DIR" -maxdepth 1 -name "*${id}*.md" 2>/dev/null | head -2)
     local count
     count=$(echo "$matches" | _grep -c . || true)
 
