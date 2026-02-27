@@ -13,6 +13,7 @@
 - Plugin metadata: `# tk-plugin:` comment for scripts, `--tk-describe` flag for binaries
 - Multi-package distribution: `ticket-core`, `ticket-extras`, and individual plugin packages
 - CI scripts for publishing to Homebrew tap and AUR
+- Multi-word title support for `tk create` command
 
 ### Plugins
 - ticket-edit 1.0.0: Open ticket in $EDITOR (extracted from core)
