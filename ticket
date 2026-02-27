@@ -55,7 +55,7 @@ init_tickets_dir() {
     return 1
 }
 
-TICKET_PAGER="${TICKET_PAGER:-${PAGER:-}}"
+TICKET_PAGER="${TICKET_PAGER-${PAGER:-}}"
 
 # Prefer ripgrep if available, fall back to grep
 if command -v rg &>/dev/null; then
