@@ -234,7 +234,7 @@ cmd_create() {
 }
 
 # Valid statuses
-VALID_STATUSES="open in_progress closed"
+VALID_STATUSES="open in_progress pending closed"
 
 validate_status() {
     local status="$1"
@@ -700,7 +700,7 @@ cmd_ready() {
         # Find ready tickets: active with all deps closed
         for (id in statuses) {
             status = statuses[id]
-            if (status != "open" && status != "in_progress") continue
+            if (status != "open" && status != "in_progress" && status != "pending") continue
             if (assignee_filter != "" && assignees[id] != assignee_filter) continue
             if (tag_filter != "" && !has_tag(all_tags[id], tag_filter)) continue
 
@@ -837,7 +837,7 @@ cmd_blocked() {
         # Find blocked tickets: active with at least one dep not closed
         for (id in statuses) {
             status = statuses[id]
-            if (status != "open" && status != "in_progress") continue
+            if (status != "open" && status != "in_progress" && status != "pending") continue
             if (assignee_filter != "" && assignees[id] != assignee_filter) continue
             if (tag_filter != "" && !has_tag(all_tags[id], tag_filter)) continue
 
@@ -1312,7 +1312,7 @@ Commands:
   start <id>               Set status to in_progress
   close <id>               Set status to closed
   reopen <id>              Set status to open
-  status <id> <status>     Update status (open|in_progress|closed)
+  status <id> <status>     Update status (open|in_progress|pending|closed)
   dep <id> <dep-id>        Add dependency (id depends on dep-id)
   dep tree [--full] <id>   Show dependency tree (--full disables dedup)
   dep cycle                Find dependency cycles in open tickets
