@@ -95,6 +95,20 @@ Searches parent directories for .tickets/ (override with TICKETS_DIR env var)
 Supports partial ID matching (e.g., 'tk show 5c4' matches 'nw-5c46')
 ```
 
+## Parent Tickets vs Dependencies
+
+Understanding the difference between `parent` and `deps`:
+
+- **`parent`** — Hierarchical relationship for grouping tickets (e.g., epics and sub-tasks). Created with `tk create --parent <id>`. Use for:
+  - Breaking large epics into smaller tickets
+  - Creating a ticket tree structure
+
+- **`deps`** — Dependency/blocking relationship. Created with `tk dep add <id> <dep-id>`. Use for:
+  - Tracking that Ticket A cannot proceed until Ticket B is complete
+  - Working with `tk ready` (show tickets with all deps resolved) and `tk blocked` (show tickets waiting on unresolved deps)
+
+These are independent by design. A ticket can have a parent (be part of an epic) while also having dependencies on other tickets.
+
 ## Plugins
 
 Executables named `tk-<cmd>` or `ticket-<cmd>` in your PATH are invoked automatically. This allows you to add custom commands or override built-in ones.
