@@ -15,6 +15,7 @@
 - CI scripts for publishing to Homebrew tap and AUR
 
 ### Plugins
+- ticket-workflow 1.0.0: Workflow templates for repeatable multi-step processes (new plugin)
 - ticket-edit 1.0.0: Open ticket in $EDITOR (extracted from core)
 - ticket-ls 1.0.0: List tickets with optional filters (extracted from core); `ticket-list` symlink for alias
 - ticket-query 1.0.0: Output tickets as JSON, optionally filtered with jq (extracted from core)

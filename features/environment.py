@@ -29,6 +29,9 @@ def before_scenario(context, scenario):
     context.stderr = ''
     context.returncode = None
 
+    # Isolate workflow tests from real user workflows
+    os.environ['TK_WORKFLOW_USER_DIR'] = os.path.join(context.test_dir, '.config', 'ticket', 'workflows')
+
 
 def after_scenario(context, scenario):
     """Clean up temporary directories after each scenario."""
