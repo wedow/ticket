@@ -22,7 +22,7 @@
         ];
       in
       {
-        packages.default = pkgs.stdenvNoCC.mkDerivation {
+        packages.ticket = pkgs.stdenvNoCC.mkDerivation {
           pname = "ticket";
           version = self.shortRev or self.dirtyShortRev or "dev";
           src = ./.;
@@ -48,8 +48,8 @@
         };
       }
     ) // {
-      overlays.default = final: prev: {
-        ticket = self.packages.${final.system}.default;
+      overlays.ticket = final: prev: {
+        ticket = self.packages.${final.system}.ticket;
       };
     };
 }
