@@ -920,28 +920,6 @@ cmd_undep() {
     echo "Removed dependency: $(basename "$file" .md) -/-> $dep_id"
 }
 
-add_link_to_file() {
-    local file="$1"
-    local target_id="$2"
-
-    local current_links
-    current_links=$(yaml_field "$file" "links" || true)
-    [[ -z "$current_links" ]] && current_links="[]"
-
-    # Skip if already present
-    if echo "$current_links" | _grep -q "$target_id"; then
-        return 0
-    fi
-
-    if [[ "$current_links" == "[]" ]]; then
-        update_yaml_field "$file" "links" "[$target_id]"
-    else
-        local new_links
-        new_links=$(echo "$current_links" | sed "s/\]/, $target_id]/")
-        update_yaml_field "$file" "links" "$new_links"
-    fi
-}
-
 cmd_link() {
     if [[ $# -lt 2 ]]; then
         echo "Usage: ticket link <id> <id> [id...]" >&2
