@@ -1,0 +1,611 @@
+#!/usr/bin/env bash
+# tk-plugin: Workflow templates for repeatable multi-step processes
+# tk-plugin-version: 1.0.0
+set -euo pipefail
+
+# Search paths for workflow definitions
+# If TICKETS_DIR is set, use it; otherwise check .tickets/ in cwd
+if [[ -n "${TICKETS_DIR:-}" ]]; then
+    project_workflows_dir="${TICKETS_DIR}/workflows"
+elif [[ -d ".tickets/workflows" ]]; then
+    project_workflows_dir="$PWD/.tickets/workflows"
+else
+    project_workflows_dir=""
+fi
+user_workflows_dir="${TK_WORKFLOW_USER_DIR:-${HOME}/.config/ticket/workflows}"
+
+usage() {
+    cat >&2 <<'EOF'
+Usage: tk workflow <command> [args]
+
+Commands:
+  list                     List available workflow templates
+  run <name> [options]     Instantiate a workflow as tickets
+    --var key=value        Set a variable (repeatable)
+    --dry-run              Preview without creating tickets
+
+Workflow files are TOML, stored in:
+  .tickets/workflows/      (project-level, checked into git)
+  ~/.config/ticket/workflows/  (user-level, personal)
+
+Example (.tickets/workflows/release.toml):
+
+  workflow = "release"
+  description = "Standard release workflow"
+  version = 1
+
+  [vars.version]
+  description = "Release version"
+  required = true
+  pattern = "^\d+\.\d+\.\d+$"
+
+  [vars.env]
+  description = "Target environment"
+  default = "staging"
+  enum = ["staging", "production"]
+
+  [[steps]]
+  id = "bump-version"
+  title = "Bump version to {{version}}"
+
+  [[steps]]
+  id = "changelog"
+  title = "Update CHANGELOG"
+  needs = ["bump-version"]
+
+  [[steps]]
+  id = "test"
+  title = "Run full test suite"
+  needs = ["changelog"]
+
+  [[steps]]
+  id = "publish"
+  title = "Publish {{version}} to {{env}}"
+  needs = ["test"]
+  type = "human"
+
+Variable fields:
+  required = true          Error if not provided via --var
+  default = "value"        Used when --var not provided
+  pattern = "regex"        Validate value against regex
+  enum = ["a", "b"]       Validate value is in list
+
+Step fields:
+  id = "name"              Unique step identifier (required)
+  title = "text"           Step title, supports {{var}} (required)
+  description = "text"     Step description, supports {{var}}
+  needs = ["step-id"]      Dependencies (wait for these steps)
+  type = "human"           Informational step type
+EOF
+    exit 1
+}
+
+# ============================================================================
+# TOML Parser — constrained subset for workflow definitions
+# ============================================================================
+
+# Parse a workflow TOML file, outputting structured data to stdout.
+# Format: key-value lines for top-level fields, vars, and steps.
+#   TOP:key=value
+#   VAR:name:field=value
+#   STEP:index:field=value
+parse_workflow() {
+    local file="$1"
+    awk '
+    BEGIN {
+        step_idx = -1; section = "top"; var_name = ""
+        in_multiline = 0; ml_key = ""; ml_val = ""
+        US = sprintf("%c", 31)  # Unit separator for encoding newlines
+    }
+
+    # Accumulate multiline triple-quoted strings
+    in_multiline {
+        if (/"""/) {
+            # Closing triple-quote found
+            line = $0
+            sub(/""".*$/, "", line)
+            ml_val = ml_val line
+            # Remove leading/trailing unit separators
+            if (substr(ml_val, 1, 1) == US) ml_val = substr(ml_val, 2)
+            if (substr(ml_val, length(ml_val)) == US) ml_val = substr(ml_val, 1, length(ml_val) - 1)
+            in_multiline = 0
+            # Emit the accumulated value
+            if (section == "top") {
+                print "TOP:" ml_key "=" ml_val
+            } else if (section == "var") {
+                print "VAR:" var_name ":" ml_key "=" ml_val
+            } else if (section == "step") {
+                print "STEP:" step_idx ":" ml_key "=" ml_val
+            }
+            next
+        }
+        ml_val = ml_val $0 US
+        next
+    }
+
+    # Skip comments and blank lines
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+
+    # [[steps]] array table
+    /^\[\[steps\]\]/ {
+        section = "step"
+        step_idx++
+        next
+    }
+
+    # [vars.<name>] section
+    /^\[vars\./ {
+        section = "var"
+        var_name = $0
+        gsub(/^\[vars\./, "", var_name)
+        gsub(/\].*$/, "", var_name)
+        next
+    }
+
+    # Any other section header — skip
+    /^\[/ { section = "skip"; next }
+
+    # Key = value lines
+    /=/ {
+        key = $0
+        sub(/[[:space:]]*=.*/, "", key)
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+
+        val = $0
+        sub(/^[^=]*=[[:space:]]*/, "", val)
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", val)
+
+        # Check for triple-quoted multiline string
+        if (val ~ /^"""/) {
+            # Remove opening triple-quote
+            sub(/^"""/, "", val)
+            # Check if closing triple-quote is on the same line
+            if (val ~ /"""$/) {
+                sub(/"""$/, "", val)
+            } else {
+                # Start multiline accumulation
+                in_multiline = 1
+                ml_key = key
+                ml_val = val US
+                next
+            }
+        }
+
+        # Strip surrounding single quotes
+        if (val ~ /^".*"$/) {
+            val = substr(val, 2, length(val) - 2)
+        }
+
+        if (section == "top") {
+            print "TOP:" key "=" val
+        } else if (section == "var") {
+            print "VAR:" var_name ":" key "=" val
+        } else if (section == "step") {
+            print "STEP:" step_idx ":" key "=" val
+        }
+    }
+    ' "$file"
+}
+
+# ============================================================================
+# Workflow Discovery
+# ============================================================================
+
+# Find all workflow files, project-level first, deduplicating by name.
+# Outputs: source\tname\tfile_path (tab-separated)
+discover_workflows() {
+    local seen_names=""
+
+    _scan_dir() {
+        local dir="$1" source="$2"
+        [[ -d "$dir" ]] || return 0
+        local f
+        for f in "$dir"/*.toml; do
+            [[ -f "$f" ]] || continue
+            local name
+            name=$(basename "$f" .toml)
+            # Check if already seen (project takes precedence)
+            case " $seen_names " in
+                *" $name "*) continue ;;
+            esac
+            # Verify it has a workflow= line
+            if grep -q '^workflow[[:space:]]*=' "$f" 2>/dev/null; then
+                seen_names="$seen_names $name"
+                printf '%s\t%s\t%s\n' "$source" "$name" "$f"
+            fi
+        done
+    }
+
+    [[ -n "${project_workflows_dir:-}" ]] && _scan_dir "$project_workflows_dir" "project"
+    _scan_dir "$user_workflows_dir" "user"
+}
+
+# Find a specific workflow file by name. Returns the file path.
+find_workflow() {
+    local name="$1"
+    local result
+    result=$(discover_workflows | awk -F'\t' -v name="$name" '$2 == name { print $3; exit }')
+    if [[ -z "$result" ]]; then
+        echo "Error: workflow '$name' not found" >&2
+        echo "Search paths:" >&2
+        [[ -n "${project_workflows_dir:-}" ]] && echo "  ${project_workflows_dir}/" >&2
+        echo "  ${user_workflows_dir}/" >&2
+        return 1
+    fi
+    echo "$result"
+}
+
+# Decode unit separator (ASCII 31) back to newlines in TOML multiline values.
+decode_ml() {
+    printf '%s' "$1" | tr "$(printf '\037')" '\n'
+}
+
+# ============================================================================
+# Key-Value Store (bash 3.2 compatible replacement for associative arrays)
+# Uses a newline-separated string of key=value pairs.
+# Values containing newlines are stored with \x1F (unit separator) encoding.
+# ============================================================================
+
+# Get value for key from store. Returns 1 if not found.
+# Decodes \x1F back to newlines in the returned value.
+kv_get() {
+    local store="$1" key="$2"
+    local line
+    while IFS= read -r line; do
+        case "$line" in
+            "${key}="*)
+                decode_ml "${line#*=}"
+                return 0
+                ;;
+        esac
+    done <<< "$store"
+    return 1
+}
+
+# Set key=value in store (prints updated store).
+kv_set() {
+    local store="$1" key="$2" val="$3"
+    local found=0 result="" line
+    if [[ -n "$store" ]]; then
+        while IFS= read -r line; do
+            case "$line" in
+                "${key}="*) result="${result}${key}=${val}"$'\n'; found=1 ;;
+                *) [[ -n "$line" ]] && result="${result}${line}"$'\n' ;;
+            esac
+        done <<< "$store"
+    fi
+    if [[ $found -eq 0 ]]; then
+        result="${result}${key}=${val}"$'\n'
+    fi
+    echo "$result"
+}
+
+# Check if key exists in store.
+kv_has() {
+    local store="$1" key="$2"
+    kv_get "$store" "$key" >/dev/null 2>&1
+}
+
+# List all keys in store.
+kv_keys() {
+    local store="$1" line
+    [[ -z "$store" ]] && return 0
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && echo "${line%%=*}"
+    done <<< "$store"
+}
+
+# ============================================================================
+# Variable Handling
+# ============================================================================
+
+# Substitute {{var}} placeholders in a string using a kv store.
+substitute_vars() {
+    local text="$1" var_store="$2"
+    local key val
+    for key in $(kv_keys "$var_store"); do
+        val=$(kv_get "$var_store" "$key") || continue
+        text="${text//\{\{${key}\}\}/${val}}"
+    done
+    printf '%s' "$text"
+}
+
+# Validate variables against workflow definitions.
+# Sets global var_store with validated+defaulted variables.
+validate_vars() {
+    local parsed_data="$1"
+    # var_store is global, already set by caller
+
+    # Collect unique variable names from parsed data
+    local var_names="" line vname
+    while IFS= read -r line; do
+        case "$line" in
+            VAR:*:*)
+                vname="${line#VAR:}"
+                vname="${vname%%:*}"
+                case " $var_names " in
+                    *" $vname "*) ;;
+                    *) var_names="$var_names $vname" ;;
+                esac
+                ;;
+        esac
+    done <<< "$parsed_data"
+
+    local missing=""
+
+    for vname in $var_names; do
+        local required="" default="" pattern="" enum_vals=""
+
+        # Extract properties for this variable
+        while IFS= read -r line; do
+            case "$line" in
+                "VAR:${vname}:required="*) required="${line#VAR:${vname}:required=}" ;;
+                "VAR:${vname}:default="*) default="${line#VAR:${vname}:default=}" ;;
+                "VAR:${vname}:pattern="*) pattern="${line#VAR:${vname}:pattern=}" ;;
+                "VAR:${vname}:enum="*) enum_vals="${line#VAR:${vname}:enum=}" ;;
+            esac
+        done <<< "$parsed_data"
+
+        # Apply default if not provided
+        if ! kv_has "$var_store" "$vname"; then
+            if [[ -n "$default" ]]; then
+                var_store=$(kv_set "$var_store" "$vname" "$default")
+            elif [[ "$required" == "true" ]]; then
+                missing="$missing $vname"
+                continue
+            fi
+        fi
+
+        # Skip validation if variable still not set
+        kv_has "$var_store" "$vname" || continue
+
+        local val
+        val=$(kv_get "$var_store" "$vname")
+
+        # Pattern validation
+        if [[ -n "$pattern" ]]; then
+            pattern="${pattern#\"}"
+            pattern="${pattern%\"}"
+            if ! echo "$val" | grep -qE "$pattern"; then
+                echo "Error: variable '$vname' value '$val' does not match pattern '$pattern'" >&2
+                return 1
+            fi
+        fi
+
+        # Enum validation
+        if [[ -n "$enum_vals" ]]; then
+            local stripped="${enum_vals#\[}"
+            stripped="${stripped%\]}"
+            local valid=0
+            local IFS=','
+            local item
+            for item in $stripped; do
+                item="${item## }"
+                item="${item%% }"
+                item="${item#\"}"
+                item="${item%\"}"
+                [[ "$item" == "$val" ]] && { valid=1; break; }
+            done
+            if [[ $valid -eq 0 ]]; then
+                echo "Error: variable '$vname' value '$val' not in allowed values: ${enum_vals}" >&2
+                return 1
+            fi
+        fi
+    done
+
+    if [[ -n "$missing" ]]; then
+        echo "Error: missing required variables:${missing}" >&2
+        echo "Hint: pass them with$(for v in $missing; do printf ' --var %s=<value>' "$v"; done)" >&2
+        return 1
+    fi
+}
+
+# ============================================================================
+# Commands
+# ============================================================================
+
+cmd_list() {
+    local workflows
+    workflows=$(discover_workflows)
+
+    if [[ -z "$workflows" ]]; then
+        echo "No workflows found"
+        echo "Search paths:"
+        [[ -n "${project_workflows_dir:-}" ]] && echo "  ${project_workflows_dir}/"
+        echo "  ${user_workflows_dir}/"
+        return 0
+    fi
+
+    while IFS=$'\t' read -r source name filepath; do
+        local desc=""
+        desc=$(parse_workflow "$filepath" | awk -F= '/^TOP:description=/ { print substr($0, index($0,"=")+1); exit }')
+        printf "%-20s %-10s %s\n" "$name" "($source)" "${desc:-(no description)}"
+    done <<< "$workflows"
+}
+
+cmd_run() {
+    # Parse arguments
+    local run_name="" dry_run=0
+    var_store=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --var)
+                [[ $# -lt 2 ]] && { echo "Error: --var requires a key=value argument" >&2; return 1; }
+                local kv="$2" k="${2%%=*}" v="${2#*=}"
+                [[ "$k" == "$2" ]] && { echo "Error: --var requires key=value format, got '$2'" >&2; return 1; }
+                var_store=$(kv_set "$var_store" "$k" "$v")
+                shift 2
+                ;;
+            --var=*)
+                local kv="${1#--var=}" k="${kv%%=*}" v="${kv#*=}"
+                var_store=$(kv_set "$var_store" "$k" "$v")
+                shift
+                ;;
+            --dry-run) dry_run=1; shift ;;
+            -*) echo "Error: unknown option '$1'" >&2; return 1 ;;
+            *)
+                [[ -z "$run_name" ]] && run_name="$1" || { echo "Error: unexpected argument '$1'" >&2; return 1; }
+                shift
+                ;;
+        esac
+    done
+
+    if [[ -z "$run_name" ]]; then
+        echo "Usage: tk workflow run <name> [--var key=value] [--dry-run]" >&2
+        return 1
+    fi
+
+    # Find the workflow file
+    local wf_file
+    wf_file=$(find_workflow "$run_name") || return 1
+
+    # Parse it
+    local parsed
+    parsed=$(parse_workflow "$wf_file")
+
+    # Get workflow metadata
+    local wf_name="" wf_desc=""
+    local line
+    while IFS= read -r line; do
+        case "$line" in
+            TOP:workflow=*) wf_name="${line#TOP:workflow=}" ;;
+            TOP:description=*) wf_desc=$(decode_ml "${line#TOP:description=}") ;;
+        esac
+    done <<< "$parsed"
+
+    # Validate variables (sets var_store with defaults)
+    validate_vars "$parsed" || return 1
+
+    # Collect steps into indexed arrays
+    local step_ids="" step_titles="" step_descs="" step_needs=""
+    local max_step=-1
+    while IFS= read -r line; do
+        case "$line" in
+            STEP:*:id=*)
+                local idx="${line#STEP:}" val
+                idx="${idx%%:*}"
+                val="${line#STEP:${idx}:id=}"
+                step_ids=$(kv_set "$step_ids" "$idx" "$val")
+                [[ $idx -gt $max_step ]] && max_step=$idx
+                ;;
+            STEP:*:title=*)
+                local idx="${line#STEP:}"
+                idx="${idx%%:*}"
+                step_titles=$(kv_set "$step_titles" "$idx" "${line#STEP:${idx}:title=}")
+                ;;
+            STEP:*:description=*)
+                local idx="${line#STEP:}"
+                idx="${idx%%:*}"
+                step_descs=$(kv_set "$step_descs" "$idx" "${line#STEP:${idx}:description=}")
+                ;;
+            STEP:*:needs=*)
+                local idx="${line#STEP:}"
+                idx="${idx%%:*}"
+                step_needs=$(kv_set "$step_needs" "$idx" "${line#STEP:${idx}:needs=}")
+                ;;
+        esac
+    done <<< "$parsed"
+
+    if [[ $max_step -lt 0 ]]; then
+        echo "Error: workflow '$run_name' has no steps" >&2
+        return 1
+    fi
+
+    # Substitute variables in workflow description for parent title
+    local parent_title="${wf_desc:-$wf_name}"
+    parent_title=$(substitute_vars "$parent_title" "$var_store")
+
+    if [[ $dry_run -eq 1 ]]; then
+        echo "Dry run: workflow '$run_name'"
+        echo ""
+        echo "Would create parent ticket: $parent_title"
+        echo ""
+        echo "Steps:"
+        local i
+        for (( i = 0; i <= max_step; i++ )); do
+            local sid stitle needs_raw needs_display=""
+            sid=$(kv_get "$step_ids" "$i")
+            stitle=$(kv_get "$step_titles" "$i")
+            stitle=$(substitute_vars "$stitle" "$var_store")
+            needs_raw=$(kv_get "$step_needs" "$i" 2>/dev/null) || true
+            [[ -n "$needs_raw" ]] && needs_display=" (needs: ${needs_raw})"
+            echo "  ${sid}: ${stitle}${needs_display}"
+        done
+        return 0
+    fi
+
+    # Ensure .tickets directory exists (create handles this, but we need TICKETS_DIR set for dep)
+    if [[ -z "${TICKETS_DIR:-}" ]]; then
+        mkdir -p .tickets
+        TICKETS_DIR="$PWD/.tickets"
+        export TICKETS_DIR
+    fi
+
+    # Create parent ticket
+    local parent_id
+    parent_id=$("$TK_SCRIPT" super create "$parent_title" --type "epic" --tags "workflow:${wf_name}")
+    echo "Created parent: $parent_id - $parent_title"
+
+    # Create child tickets, mapping step IDs to ticket IDs
+    local step_to_ticket=""
+    local i
+    for (( i = 0; i <= max_step; i++ )); do
+        local sid stitle sdesc child_id
+        sid=$(kv_get "$step_ids" "$i")
+        stitle=$(kv_get "$step_titles" "$i")
+        stitle=$(substitute_vars "$stitle" "$var_store")
+        sdesc=$(kv_get "$step_descs" "$i" 2>/dev/null) || true
+        [[ -n "$sdesc" ]] && sdesc=$(substitute_vars "$sdesc" "$var_store")
+
+        local child_args=("$stitle" --parent "$parent_id" --tags "workflow:${wf_name}")
+        [[ -n "$sdesc" ]] && child_args+=(-d "$sdesc")
+        child_id=$("$TK_SCRIPT" super create "${child_args[@]}")
+        step_to_ticket=$(kv_set "$step_to_ticket" "$sid" "$child_id")
+        echo "  Created step: $child_id - $stitle"
+    done
+
+    # Add dependencies
+    for (( i = 0; i <= max_step; i++ )); do
+        local sid needs_raw
+        sid=$(kv_get "$step_ids" "$i")
+        needs_raw=$(kv_get "$step_needs" "$i" 2>/dev/null) || true
+        [[ -z "$needs_raw" ]] && continue
+
+        # Parse needs array: ["a", "b"] or [a, b]
+        local stripped="${needs_raw#\[}"
+        stripped="${stripped%\]}"
+        local IFS=',' dep_name
+        for dep_name in $stripped; do
+            dep_name="${dep_name## }"
+            dep_name="${dep_name%% }"
+            dep_name="${dep_name#\"}"
+            dep_name="${dep_name%\"}"
+            local dep_ticket_id
+            if dep_ticket_id=$(kv_get "$step_to_ticket" "$dep_name" 2>/dev/null); then
+                local this_ticket_id
+                this_ticket_id=$(kv_get "$step_to_ticket" "$sid")
+                "$TK_SCRIPT" super dep "$this_ticket_id" "$dep_ticket_id" >/dev/null
+            else
+                echo "  Warning: step '$sid' needs unknown step '$dep_name'" >&2
+            fi
+        done
+    done
+
+    echo ""
+    echo "Workflow '$wf_name' created with $((max_step + 1)) steps (parent: $parent_id)"
+}
+
+# ============================================================================
+# Main Dispatch
+# ============================================================================
+
+subcmd="${1:-}"
+shift || true
+
+case "$subcmd" in
+    list) cmd_list ;;
+    run)  cmd_run "$@" ;;
+    *)    usage ;;
+esac
