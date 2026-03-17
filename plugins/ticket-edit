@@ -28,7 +28,7 @@ if [[ ! -f "$file" ]]; then
 fi
 
 if [ -t 0 ] && [ -t 1 ]; then
-    "${EDITOR:-vi}" "$file"
+    ${EDITOR:-vi} "$file"
 else
     echo "Edit ticket file: $file"
 fi
