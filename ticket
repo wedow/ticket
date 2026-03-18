@@ -158,7 +158,7 @@ cmd_create() {
     ensure_dir
 
     local title="" description="" design="" acceptance=""
-    local priority=2 issue_type="task" assignee="" external_ref="" parent="" tags=""
+    local priority=2 issue_type="task" assignee="" external_ref="" parent="" tags="" edit=""
 
     # Default assignee to git user.name if available
     assignee=$(git config user.name 2>/dev/null || true)
@@ -175,6 +175,7 @@ cmd_create() {
             --external-ref) external_ref="$2"; shift 2 ;;
             --parent) parent="$2"; shift 2 ;;
             --tags) tags="$2"; shift 2 ;;
+            -e|--edit) edit=1; shift ;;
             -*) echo "Unknown option: $1" >&2; return 1 ;;
             *) title="$1"; shift ;;
         esac
@@ -233,6 +234,10 @@ cmd_create() {
             echo ""
         fi
     } > "$file"
+
+    if [[ $edit = 1 ]]; then
+      ${VISUAL:-${EDITOR:-vi}} "$file"
+    fi
 
     echo "$id"
 }
