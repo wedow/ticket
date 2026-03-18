@@ -180,6 +180,10 @@ cmd_create() {
         esac
     done
 
+    if [[ $description = "-" ]]; then
+        description="$(< /dev/stdin)"
+    fi
+
     # Validate and resolve parent if specified
     if [[ -n "$parent" ]]; then
         local parent_file
@@ -1300,7 +1304,7 @@ Usage: $cmd <command> [args]
 
 Commands:
   create [title] [options] Create ticket, prints ID
-    -d, --description      Description text
+    -d, --description      Description text (or "-" to read from stdin)
     --design               Design notes
     --acceptance           Acceptance criteria
     -t, --type             Type (bug|feature|task|epic|chore) [default: task]
