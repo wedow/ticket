@@ -58,7 +58,8 @@ Usage: tk <command> [args]
 
 Commands:
   create [title] [options] Create ticket, prints ID
-    -d, --description      Description text
+    -d, --description      Description text, or - to read from stdin
+    -e, --edit             Open editor ($VISUAL or $EDITOR or vi) to edit ticket
     --design               Design notes
     --acceptance           Acceptance criteria
     -t, --type             Type (bug|feature|task|epic|chore) [default: task]
