@@ -18,6 +18,12 @@ Feature: Ticket Creation
     And the output should match a ticket ID pattern
     And a ticket file should exist with title "Untitled"
 
+  Scenario: Create a basic ticket with multi-word title
+    When I run "ticket create My first multi-word ticket"
+    Then the command should succeed
+    And the output should match a ticket ID pattern
+    And a ticket file should exist with title "My first multi-word ticket"
+
   Scenario: Create a ticket with description
     When I run "ticket create 'Test ticket' -d 'This is the description'"
     Then the command should succeed
@@ -27,6 +33,12 @@ Feature: Ticket Creation
     When I run "ticket create 'Bug ticket' -t bug"
     Then the command should succeed
     And the created ticket should have field "type" with value "bug"
+
+  Scenario: Create a ticket with multi-word title and type
+    When I run "ticket create Chore ticket -t chore"
+    Then the command should succeed
+    And a ticket file should exist with title "Chore ticket"
+    And the created ticket should have field "type" with value "chore"
 
   Scenario: Create a ticket with priority
     When I run "ticket create 'High priority' -p 0"
