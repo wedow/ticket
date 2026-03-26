@@ -207,6 +207,26 @@ Description
     ticket_path.write_text(content)
 
 
+@given(r'a symlinked tickets directory')
+def step_symlinked_tickets_directory(context):
+    """Create .tickets as a symlink to a real directory elsewhere."""
+    import shutil
+
+    # Create the actual tickets directory in a subdirectory
+    real_dir = Path(context.test_dir) / 'real_tickets_dir' / '.tickets'
+    real_dir.mkdir(parents=True, exist_ok=True)
+
+    # Remove existing .tickets (could be a directory or symlink)
+    symlink_path = Path(context.test_dir) / '.tickets'
+    if symlink_path.is_symlink():
+        symlink_path.unlink()
+    elif symlink_path.exists():
+        shutil.rmtree(symlink_path)
+
+    # Create symlink at .tickets pointing to the real directory
+    symlink_path.symlink_to(real_dir)
+
+
 # ============================================================================
 # When Steps
 # ============================================================================

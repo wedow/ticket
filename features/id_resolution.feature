@@ -69,3 +69,10 @@ Feature: Ticket ID Resolution
     When I run "ticket link cccc dddd"
     Then the command should succeed
     And ticket "link-cccc" should have "link-dddd" in links
+
+  Scenario: Partial ID match works with symlinked tickets directory
+    Given a symlinked tickets directory
+    And a ticket exists with ID "sym-1234" and title "Symlink test"
+    When I run "ticket show 1234"
+    Then the command should succeed
+    And the output should contain "id: sym-1234"
