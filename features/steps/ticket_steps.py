@@ -256,9 +256,9 @@ def step_run_command_no_stdin(context, command):
     context.returncode = result.returncode
 
 
-@when(r'I run "(?P<command>(?:[^"\\]|\\.)+)" with TICKETS_DIR set to "(?P<tickets_dir>[^"]+)"')
-def step_run_command_with_env(context, command, tickets_dir):
-    """Run a ticket CLI command with custom TICKETS_DIR."""
+@when(r'I run "(?P<command>(?:[^"\\]|\\.)+)" with (?P<var_name>[A-Z_]+) set to "(?P<var_value>[^"]*)"')
+def step_run_command_with_env(context, command, var_name, var_value):
+    """Run a ticket CLI command with a custom environment variable."""
     command = command.replace('\\"', '"')
     ticket_script = get_ticket_script(context)
     cmd = command.replace('ticket ', f'{ticket_script} ', 1)
@@ -266,9 +266,12 @@ def step_run_command_with_env(context, command, tickets_dir):
     # Use working_dir if set (from subdirectory step), otherwise test_dir
     cwd = getattr(context, 'working_dir', context.test_dir)
 
-    # Resolve tickets_dir relative to test_dir
     env = os.environ.copy()
-    env['TICKETS_DIR'] = str(Path(context.test_dir) / tickets_dir)
+    # Resolve TICKETS_DIR relative to test_dir
+    if var_name == 'TICKETS_DIR':
+        env[var_name] = str(Path(context.test_dir) / var_value)
+    else:
+        env[var_name] = var_value
 
     result = subprocess.run(
         cmd,
