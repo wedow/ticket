@@ -2,10 +2,15 @@
 
 ## [Unreleased]
 
+### Fixed
+- `update_yaml_field` now works on macOS/BSD (awk instead of GNU-specific sed for field insertion)
+
 ### Changed
 - Extracted `edit`, `ls`, `query`, and `migrate-beads` commands to plugins (ticket-extras)
 
 ### Added
+- `update` command for non-interactive YAML field updates (`tk update <id> --field=value`)
+- JSON array syntax support in update command (requires jq): `--tags='["a", "b"]'`
 - Plugin system: executables named `tk-<cmd>` or `ticket-<cmd>` in PATH are invoked automatically
 - `super` command to bypass plugins and run built-in commands directly
 - `TICKETS_DIR` and `TK_SCRIPT` environment variables exported for plugins
