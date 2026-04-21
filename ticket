@@ -139,22 +139,112 @@ yaml_field() {
 }
 
 # Update YAML field
+#
+# Both branches use awk with -v to pass field/value as variables. This avoids
+# sed's s/// metacharacter hazards (&, /, \) that would corrupt values or
+# break the separator. First-match-wins: for well-formed frontmatter with a
+# single definition per field, behavior is identical to a global replace.
+# For accidentally duplicated keys, the canonical first entry stays
+# authoritative and the duplicate remains visible as an artifact rather than
+# being silently mirrored.
 update_yaml_field() {
     local file="$1"
     local field="$2"
     local value="$3"
+    local tmp="${file}.tmp.$$"
 
     if _grep -q "^${field}:" "$file"; then
-        _sed_i "$file" "s/^${field}:.*/${field}: ${value}/"
+        # Replace existing field — exit 2 if no match found, to prevent
+        # silently writing an unchanged file (defense against encoding/
+        # race issues that slip past the _grep gate).
+        awk -v field="$field" -v value="$value" '
+            !done && $0 ~ "^" field ":" { print field ": " value; done=1; next }
+            { print }
+            END { if (!done) exit 2 }
+        ' "$file" > "$tmp" && mv "$tmp" "$file"
     else
         # Insert after first --- (beginning of frontmatter)
-        # Using awk for BSD/GNU portability (sed 0,/pat/ and a\ differ)
-        local tmp="${file}.tmp.$$"
         awk -v field="$field" -v value="$value" '
-            NR==1 && /^---$/ { print; print field ": " value; next }
+            NR==1 && /^---$/ { print; print field ": " value; done=1; next }
             { print }
+            END { if (!done) exit 2 }
         ' "$file" > "$tmp" && mv "$tmp" "$file"
     fi
+}
+
+# Classify and validate a proposed field update. Categories:
+#   immutable        — id, created: breaks file-name coupling or audit trail
+#   routed           — status, deps, links: has dedicated command with validation
+#   body-backed      — title, description, design, acceptance: live in markdown
+#                      body (not YAML frontmatter); writing them to YAML
+#                      creates desync (cmd_create emits them as body sections)
+#   validated        — priority, parent, type: YAML-backed, value must match rules
+#   freeform         — anything else, as long as the key name is parser-safe
+#
+# Returns 0 if the update is allowed, 1 with a clear error otherwise.
+validate_field_update() {
+    local field="$1"
+    local value="$2"
+
+    # Guard: field-name syntax — prevents regex-injection into update_yaml_field
+    # (field is interpolated into awk's regex "^" field ":")
+    if [[ ! "$field" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]]; then
+        echo "Error: invalid field name '$field' (allowed: [A-Za-z][A-Za-z0-9_-]*)" >&2
+        return 1
+    fi
+
+    case "$field" in
+        # immutable
+        id|created)
+            echo "Error: field '$field' is immutable (would break file-name coupling / audit trail)" >&2
+            return 1
+            ;;
+        # routed to dedicated commands
+        status)
+            echo "Error: use 'tk status <id> <status>' to update status (validates allowed values)" >&2
+            return 1
+            ;;
+        deps)
+            echo "Error: use 'tk dep <id> <dep-id>' to add dependencies (validates existence)" >&2
+            return 1
+            ;;
+        links)
+            echo "Error: use 'tk link <id> <id>' to link tickets (maintains symmetric backlinks)" >&2
+            return 1
+            ;;
+        # body-backed (not YAML frontmatter)
+        title|description|design|acceptance)
+            echo "Error: '$field' is stored in the ticket's markdown body, not frontmatter. Use 'tk edit <id>' to modify body sections" >&2
+            return 1
+            ;;
+        # validated
+        priority)
+            if [[ ! "$value" =~ ^[0-4]$ ]]; then
+                echo "Error: priority must be 0-4 (got '$value')" >&2
+                return 1
+            fi
+            ;;
+        type)
+            case "$value" in
+                bug|feature|task|epic|chore) ;;
+                *)
+                    echo "Error: type must be one of: bug, feature, task, epic, chore (got '$value')" >&2
+                    return 1
+                    ;;
+            esac
+            ;;
+        parent)
+            # Parent must be an existing ticket (empty value allowed to unset)
+            if [[ -n "$value" ]]; then
+                if ! ticket_path "$value" >/dev/null 2>&1; then
+                    echo "Error: parent ticket '$value' not found" >&2
+                    return 1
+                fi
+            fi
+            ;;
+        # freeform custom fields — pass through
+    esac
+    return 0
 }
 
 cmd_create() {
@@ -1340,27 +1430,60 @@ cmd_update() {
                 local field="${arg%%=*}"
                 local value="${arg#*=}"
 
+                # Validate field-name syntax, classify category, validate value.
+                # Runs BEFORE JSON array handling so that "invalid field name"
+                # errors take priority over "invalid JSON" errors — specific
+                # diagnosis beats generic.
+                validate_field_update "$field" "$value" || return 1
+
                 # Handle JSON array syntax -> YAML flow array
                 if [[ "$value" =~ ^\[.*\]$ ]]; then
                     if command -v jq &>/dev/null; then
+                        # jq exits non-zero on invalid JSON. It also exits
+                        # non-zero via error() if any array item contains a
+                        # comma — comma-in-item would corrupt round-trip
+                        # through consumers that split on ", *" (ticket-query,
+                        # ticket-ls, internal awk splits).
                         local yaml_val
-                        yaml_val=$(echo "$value" | jq -r '
+                        yaml_val=$(echo "$value" | jq -er '
                             if type == "array" then
-                                "[" + (map(tostring) | join(", ")) + "]"
+                                if any(.[] | tostring; test(",")) then
+                                    error("array item contains comma")
+                                else
+                                    "[" + (map(tostring) | join(", ")) + "]"
+                                end
                             else
                                 .
                             end
-                        ' 2>/dev/null) || {
-                            echo "Error: invalid JSON for $field" >&2
+                        ' 2>&1) || {
+                            if echo "$yaml_val" | grep -q "array item contains comma"; then
+                                echo "Error: array items for '$field' must not contain commas. The ticket ecosystem stores arrays as comma-separated values and has no quote-aware parsing in consumers (ticket-query, ticket-ls). Use dashes or underscores instead." >&2
+                            else
+                                echo "Error: invalid JSON for $field" >&2
+                            fi
                             return 1
                         }
                         value="$yaml_val"
+                    else
+                        # This branch is exercised only when jq is absent;
+                        # manual verification required on a jq-less system.
+                        # Still guard the contract: reject items that contain
+                        # commas, since downstream consumers split on commas.
+                        local inner="${value#[}"
+                        inner="${inner%]}"
+                        # Require 1+ non-quote chars on each side of the comma:
+                        # that anchors the comma INSIDE a quoted string and
+                        # excludes the separator case '","' between items.
+                        if echo "$inner" | grep -qE '"[^"]+,[^"]+"'; then
+                            echo "Error: array items for '$field' must not contain commas (ecosystem limitation)" >&2
+                            return 1
+                        fi
+                        # Value passes through as-is (user's responsibility beyond comma check)
                     fi
-                    # If no jq, pass value as-is (user's responsibility)
                 fi
 
                 update_yaml_field "$file" "$field" "$value"
-                ((updated++))
+                updated=$((updated + 1))
                 shift
                 ;;
             *)

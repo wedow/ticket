@@ -56,3 +56,121 @@ Feature: Ticket Update Command
     When I run "ticket update 0001 --priority=0"
     Then the command should succeed
     And ticket "test-0001" should have field "priority" with value "0"
+
+  Scenario: Exit code is 0 on successful single update (set -e regression)
+    When I run "ticket update test-0001 --priority=1"
+    Then the command should succeed
+
+  Scenario: Exit code is 0 on successful multiple updates
+    When I run "ticket update test-0001 --priority=1 --assignee=alice"
+    Then the command should succeed
+
+  Scenario: Value containing ampersand is stored literally (sed & metachar)
+    When I run "ticket update test-0001 --assignee='A & B'"
+    Then the command should succeed
+    And ticket "test-0001" should have field "assignee" with value "A & B"
+
+  Scenario: Value containing forward slash is stored literally (sed / separator)
+    When I run "ticket update test-0001 --external-ref='https://example.com/path'"
+    Then the command should succeed
+    And ticket "test-0001" should have field "external-ref" with value "https://example.com/path"
+
+  Scenario: Cannot update id field (immutable)
+    When I run "ticket update test-0001 --id=hacker"
+    Then the command should fail
+    And the output should contain "Error: field 'id' is immutable"
+
+  Scenario: Cannot update created field (immutable)
+    When I run "ticket update test-0001 --created=2020-01-01"
+    Then the command should fail
+    And the output should contain "immutable"
+
+  Scenario: Cannot update status (routes to tk status)
+    When I run "ticket update test-0001 --status=closed"
+    Then the command should fail
+    And the output should contain "use 'tk status"
+
+  Scenario: Cannot update deps (routes to tk dep)
+    When I run "ticket update test-0001 '--deps=[\"other\"]'"
+    Then the command should fail
+    And the output should contain "use 'tk dep"
+
+  Scenario: Cannot update links (routes to tk link)
+    When I run "ticket update test-0001 '--links=[\"other\"]'"
+    Then the command should fail
+    And the output should contain "use 'tk link"
+
+  Scenario: Cannot update title (body content, not YAML)
+    When I run "ticket update test-0001 --title=Renamed"
+    Then the command should fail
+    And the output should contain "markdown body"
+
+  Scenario: Cannot update description (body content, not YAML)
+    When I run "ticket update test-0001 --description=text"
+    Then the command should fail
+    And the output should contain "markdown body"
+
+  Scenario: Cannot update design (body content, not YAML)
+    When I run "ticket update test-0001 --design=text"
+    Then the command should fail
+    And the output should contain "markdown body"
+
+  Scenario: Cannot update acceptance (body content, not YAML)
+    When I run "ticket update test-0001 --acceptance=text"
+    Then the command should fail
+    And the output should contain "markdown body"
+
+  Scenario: Priority must be 0-4
+    When I run "ticket update test-0001 --priority=99"
+    Then the command should fail
+    And the output should contain "priority must be 0-4"
+
+  Scenario: Priority accepts valid range
+    When I run "ticket update test-0001 --priority=0"
+    Then the command should succeed
+    And ticket "test-0001" should have field "priority" with value "0"
+
+  Scenario: Type must be one of known values
+    When I run "ticket update test-0001 --type=banana"
+    Then the command should fail
+    And the output should contain "must be one of: bug, feature, task, epic, chore"
+
+  Scenario: Parent must reference existing ticket
+    When I run "ticket update test-0001 --parent=nonexistent"
+    Then the command should fail
+    And the output should contain "parent ticket 'nonexistent' not found"
+
+  Scenario: Parent can reference an existing ticket (positive path)
+    Given a ticket exists with ID "test-0002" and title "Parent ticket"
+    When I run "ticket update test-0001 --parent=test-0002"
+    Then the command should succeed
+    And ticket "test-0001" should have field "parent" with value "test-0002"
+
+  Scenario: Parent can be unset with empty value
+    When I run "ticket update test-0001 --parent="
+    Then the command should succeed
+
+  Scenario: Invalid field name syntax is rejected (regex injection guard)
+    When I run "ticket update test-0001 '--foo.bar=baz'"
+    Then the command should fail
+    And the output should contain "invalid field name"
+
+  Scenario: Field-name validation precedes JSON validation (ordering)
+    When I run "ticket update test-0001 '--foo.bar=[1,2,3]'"
+    Then the command should fail
+    And the output should contain "invalid field name"
+
+  Scenario: Reject array items with embedded commas (ecosystem limitation)
+    When I run "ticket update test-0001 '--tags=[\"urgent, internal\"]'"
+    Then the command should fail
+    And the output should contain "must not contain commas"
+
+  Scenario: Comma-in-item error is specific, not generic (jq error coupling)
+    When I run "ticket update test-0001 '--tags=[\"a, b\"]'"
+    Then the command should fail
+    And the output should contain "must not contain commas"
+
+  Scenario: Custom field names are allowed (hybrid policy, freeform category)
+    When I run "ticket update test-0001 --sprint=42"
+    Then the command should succeed
+    And ticket "test-0001" should have field "sprint" with value "42"
