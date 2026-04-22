@@ -27,7 +27,7 @@ def get_ticket_script(context):
     return str(Path(context.project_dir) / 'ticket')
 
 
-def create_ticket(context, ticket_id, title, priority=2, parent=None):
+def create_ticket(context, ticket_id, title, priority=2, parent=None, type="task"):
     """Helper to create a ticket file."""
     tickets_dir = Path(context.test_dir) / '.tickets'
     tickets_dir.mkdir(parents=True, exist_ok=True)
@@ -39,7 +39,7 @@ status: open
 deps: []
 links: []
 created: 2024-01-01T00:00:00Z
-type: task
+type: {type}
 priority: {priority}
 '''
     if parent:
@@ -86,6 +86,12 @@ def step_ticket_exists_with_priority(context, ticket_id, title, priority):
     create_ticket(context, ticket_id, title, priority=int(priority))
 
 
+@given(r'a ticket exists with ID "(?P<ticket_id>[^"]+)" and title "(?P<title>[^"]+)" with type "(?P<type>[^"]+)"')
+def step_ticket_exists_with_type(context, ticket_id, title, type):
+    """Create a ticket with given ID, title, and type."""
+    create_ticket(context, ticket_id, title, type=type)
+
+
 @given(r'a ticket exists with ID "(?P<ticket_id>[^"]+)" and title "(?P<title>[^"]+)" with parent "(?P<parent_id>[^"]+)"')
 def step_ticket_exists_with_parent(context, ticket_id, title, parent_id):
     """Create a ticket with given ID, title, and parent."""
@@ -105,6 +111,15 @@ def step_ticket_has_status(context, ticket_id, status):
     ticket_path = Path(context.test_dir) / '.tickets' / f'{ticket_id}.md'
     content = ticket_path.read_text()
     content = re.sub(r'^status: \w+', f'status: {status}', content, flags=re.MULTILINE)
+    ticket_path.write_text(content)
+
+
+@given(r'ticket "(?P<ticket_id>[^"]+)" has priority (?P<priority>\d+)')
+def step_ticket_has_priority(context, ticket_id, priority):
+    """Set ticket priority."""
+    ticket_path = Path(context.test_dir) / '.tickets' / f'{ticket_id}.md'
+    content = ticket_path.read_text()
+    content = re.sub(r'^priority: \d+', f'priority: {priority}', content, flags=re.MULTILINE)
     ticket_path.write_text(content)
 
 
