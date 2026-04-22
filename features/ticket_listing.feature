@@ -220,3 +220,29 @@ Feature: Ticket Listing
     Then the command should fail
     And the output should contain "invalid --priority value"
     And the output should contain "9"
+
+  Scenario: List rejects unknown long flag
+    Given a ticket exists with ID "list-0001" and title "Any"
+    When I run "ticket ls --unknown=value"
+    Then the command should fail
+    And the output should contain "unknown argument"
+    And the output should contain "--unknown=value"
+
+  Scenario: List rejects unknown short flag
+    Given a ticket exists with ID "list-0001" and title "Any"
+    When I run "ticket ls -z"
+    Then the command should fail
+    And the output should contain "unknown argument"
+    And the output should contain "-z"
+
+  Scenario: List rejects unknown positional argument
+    Given a ticket exists with ID "list-0001" and title "Any"
+    When I run "ticket ls extraarg"
+    Then the command should fail
+    And the output should contain "unknown argument"
+    And the output should contain "extraarg"
+
+  Scenario: List exits with code 2 on unknown argument
+    Given a ticket exists with ID "list-0001" and title "Any"
+    When I run "ticket ls --unknown"
+    Then the command should exit with code 2

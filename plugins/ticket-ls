@@ -15,7 +15,7 @@ while [[ $# -gt 0 ]]; do
         --type=*) type_filter="${1#--type=}"; shift ;;
         -p) priority_filter="$2"; shift 2 ;;
         --priority=*) priority_filter="${1#--priority=}"; shift ;;
-        *) shift ;;
+        *) echo "ticket list: unknown argument '$1'" >&2; exit 2 ;;
     esac
 done
 
