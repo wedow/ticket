@@ -148,9 +148,12 @@ update_yaml_field() {
         _sed_i "$file" "s/^${field}:.*/${field}: ${value}/"
     else
         # Insert after first --- (beginning of frontmatter)
-        _sed_i "$file" "0,/^---$/ { /^---$/a\\
-${field}: ${value}
-}"
+        # Using awk for BSD/GNU portability (sed 0,/pat/ and a\ differ)
+        local tmp="${file}.tmp.$$"
+        awk -v field="$field" -v value="$value" '
+            NR==1 && /^---$/ { print; print field ": " value; next }
+            { print }
+        ' "$file" > "$tmp" && mv "$tmp" "$file"
     fi
 }
 
@@ -1280,6 +1283,8 @@ Commands:
   close <id>               Set status to closed
   reopen <id>              Set status to open
   status <id> <status>     Update status (open|in_progress|closed)
+  update <id> --field=value  Update YAML field(s) non-interactively
+                             Arrays: --field='["a", "b"]' (JSON syntax)
   dep <id> <dep-id>        Add dependency (id depends on dep-id)
   dep tree [--full] <id>   Show dependency tree (--full disables dedup)
   dep cycle                Find dependency cycles in open tickets
@@ -1315,6 +1320,63 @@ Plugin descriptions: comment '# tk-plugin: text' or --tk-describe flag
 Tickets stored as markdown files in .tickets/
 Supports partial ID matching (e.g., '$cmd show 5c4' matches 'nw-5c46')
 EOF
+}
+
+cmd_update() {
+    if [[ $# -lt 2 ]]; then
+        echo "Usage: $(basename "$0") update <id> --field=value [--field2=value2 ...]" >&2
+        return 1
+    fi
+
+    local file
+    file=$(ticket_path "$1") || return 1
+    shift
+
+    local updated=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --*=*)
+                local arg="${1#--}"
+                local field="${arg%%=*}"
+                local value="${arg#*=}"
+
+                # Handle JSON array syntax -> YAML flow array
+                if [[ "$value" =~ ^\[.*\]$ ]]; then
+                    if command -v jq &>/dev/null; then
+                        local yaml_val
+                        yaml_val=$(echo "$value" | jq -r '
+                            if type == "array" then
+                                "[" + (map(tostring) | join(", ")) + "]"
+                            else
+                                .
+                            end
+                        ' 2>/dev/null) || {
+                            echo "Error: invalid JSON for $field" >&2
+                            return 1
+                        }
+                        value="$yaml_val"
+                    fi
+                    # If no jq, pass value as-is (user's responsibility)
+                fi
+
+                update_yaml_field "$file" "$field" "$value"
+                ((updated++))
+                shift
+                ;;
+            *)
+                echo "Error: unknown argument '$1'" >&2
+                echo "Usage: $(basename "$0") update <id> --field=value" >&2
+                return 1
+                ;;
+        esac
+    done
+
+    if [[ $updated -gt 0 ]]; then
+        echo "Updated $updated field(s) on $(basename "$file" .md)"
+    else
+        echo "No fields specified" >&2
+        return 1
+    fi
 }
 
 # Main dispatch
@@ -1373,6 +1435,7 @@ case "${1:-help}" in
     blocked) shift; cmd_blocked "$@" ;;
     closed) shift; cmd_closed "$@" ;;
     show)   shift; cmd_show "$@" ;;
+    update) shift; cmd_update "$@" ;;
     add-note) shift; cmd_add_note "$@" ;;
     help|--help|-h) cmd_help ;;
     *)

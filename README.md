@@ -71,6 +71,8 @@ Commands:
   close <id>               Set status to closed
   reopen <id>              Set status to open
   status <id> <status>     Update status (open|in_progress|closed)
+  update <id> --field=value  Update YAML field(s) non-interactively
+                             Arrays: --field='["a", "b"]' (JSON syntax)
   dep <id> <dep-id>        Add dependency (id depends on dep-id)
   dep tree [--full] <id>   Show dependency tree (--full disables dedup)
   dep cycle                Find dependency cycles in open tickets

@@ -161,3 +161,88 @@ Feature: Ticket Listing
     When I run "ticket closed"
     Then the command should succeed
     And the output should not contain "done-0001"
+
+  Scenario: List with type filter (long flag)
+    Given a ticket exists with ID "list-0001" and title "A bug" with type "bug"
+    And a ticket exists with ID "list-0002" and title "A task" with type "task"
+    When I run "ticket ls --type=bug"
+    Then the command should succeed
+    And the output should contain "list-0001"
+    And the output should not contain "list-0002"
+
+  Scenario: List with type filter (short flag)
+    Given a ticket exists with ID "list-0001" and title "A bug" with type "bug"
+    And a ticket exists with ID "list-0002" and title "A task" with type "task"
+    When I run "ticket ls -t bug"
+    Then the command should succeed
+    And the output should contain "list-0001"
+    And the output should not contain "list-0002"
+
+  Scenario: List with priority filter (long flag)
+    Given a ticket exists with ID "list-0001" and title "High" with priority 1
+    And a ticket exists with ID "list-0002" and title "Low" with priority 3
+    When I run "ticket ls --priority=1"
+    Then the command should succeed
+    And the output should contain "list-0001"
+    And the output should not contain "list-0002"
+
+  Scenario: List with priority filter (short flag)
+    Given a ticket exists with ID "list-0001" and title "High" with priority 1
+    And a ticket exists with ID "list-0002" and title "Low" with priority 3
+    When I run "ticket ls -p 1"
+    Then the command should succeed
+    And the output should contain "list-0001"
+    And the output should not contain "list-0002"
+
+  Scenario: List with combined type and priority filters
+    Given a ticket exists with ID "list-0001" and title "Urgent bug" with type "bug"
+    And ticket "list-0001" has priority 1
+    And a ticket exists with ID "list-0002" and title "Minor bug" with type "bug"
+    And ticket "list-0002" has priority 3
+    And a ticket exists with ID "list-0003" and title "Urgent task" with type "task"
+    And ticket "list-0003" has priority 1
+    When I run "ticket ls --type=bug --priority=1"
+    Then the command should succeed
+    And the output should contain "list-0001"
+    And the output should not contain "list-0002"
+    And the output should not contain "list-0003"
+
+  Scenario: List rejects invalid type value
+    Given a ticket exists with ID "list-0001" and title "Any" with type "bug"
+    When I run "ticket ls --type=xyz"
+    Then the command should fail
+    And the output should contain "invalid --type value"
+    And the output should contain "xyz"
+
+  Scenario: List rejects invalid priority value
+    Given a ticket exists with ID "list-0001" and title "Any" with priority 1
+    When I run "ticket ls --priority=9"
+    Then the command should fail
+    And the output should contain "invalid --priority value"
+    And the output should contain "9"
+
+  Scenario: List rejects unknown long flag
+    Given a ticket exists with ID "list-0001" and title "Any"
+    When I run "ticket ls --unknown=value"
+    Then the command should fail
+    And the output should contain "unknown argument"
+    And the output should contain "--unknown=value"
+
+  Scenario: List rejects unknown short flag
+    Given a ticket exists with ID "list-0001" and title "Any"
+    When I run "ticket ls -z"
+    Then the command should fail
+    And the output should contain "unknown argument"
+    And the output should contain "-z"
+
+  Scenario: List rejects unknown positional argument
+    Given a ticket exists with ID "list-0001" and title "Any"
+    When I run "ticket ls extraarg"
+    Then the command should fail
+    And the output should contain "unknown argument"
+    And the output should contain "extraarg"
+
+  Scenario: List exits with code 2 on unknown argument
+    Given a ticket exists with ID "list-0001" and title "Any"
+    When I run "ticket ls --unknown"
+    Then the command should exit with code 2
