@@ -26,10 +26,10 @@ FNR==1 {
 in_front && /^id:/ { id = $2 }
 in_front && /^status:/ { status = $2 }
 in_front && /^assignee:/ { assignee = $2 }
-in_front && /^tags:/ { tags = $2; gsub(/[\[\] ]/, "", tags) }
+in_front && /^tags:/ { tags = $2; gsub(/[\[\] "]/, "", tags) }
 in_front && /^deps:/ {
     deps = $2
-    gsub(/[\[\] ]/, "", deps)
+    gsub(/[\[\] "]/, "", deps)
 }
 !in_front && /^# / && title == "" { title = substr($0, 3) }
 END { if (prev_file) emit() }

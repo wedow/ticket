@@ -139,19 +139,133 @@ yaml_field() {
 }
 
 # Update YAML field
+#
+# Field is passed via -v (parser-safe ASCII per validate_field_update). Value
+# is passed via ENVIRON to avoid awk's -v C-style escape processing — values
+# from cmd_update may contain JSON escapes (\", \\, \n) that -v would
+# unescape, corrupting the stored YAML. ENVIRON delivers the byte-exact
+# string. This avoids sed's s/// metacharacter hazards (&, /, \) too.
+# First-match-wins: for well-formed frontmatter with a single definition per
+# field, behavior is identical to a global replace. For accidentally
+# duplicated keys, the canonical first entry stays authoritative and the
+# duplicate remains visible as an artifact rather than being silently
+# mirrored.
 update_yaml_field() {
     local file="$1"
     local field="$2"
     local value="$3"
+    local tmp="${file}.tmp.$$"
 
     if _grep -q "^${field}:" "$file"; then
-        _sed_i "$file" "s/^${field}:.*/${field}: ${value}/"
+        # Replace existing field — exit 2 if no match found, to prevent
+        # silently writing an unchanged file (defense against encoding/
+        # race issues that slip past the _grep gate).
+        TK_FIELD_VALUE="$value" awk -v field="$field" '
+            BEGIN { value = ENVIRON["TK_FIELD_VALUE"] }
+            !done && $0 ~ "^" field ":" { print field ": " value; done=1; next }
+            { print }
+            END { if (!done) exit 2 }
+        ' "$file" > "$tmp" && mv "$tmp" "$file"
     else
         # Insert after first --- (beginning of frontmatter)
-        _sed_i "$file" "0,/^---$/ { /^---$/a\\
-${field}: ${value}
-}"
+        TK_FIELD_VALUE="$value" awk -v field="$field" '
+            BEGIN { value = ENVIRON["TK_FIELD_VALUE"] }
+            NR==1 && /^---$/ { print; print field ": " value; done=1; next }
+            { print }
+            END { if (!done) exit 2 }
+        ' "$file" > "$tmp" && mv "$tmp" "$file"
     fi
+}
+
+# Classify and validate a proposed field update. Categories:
+#   immutable        — id, created: breaks file-name coupling or audit trail
+#   routed           — status, deps, links: has dedicated command with validation
+#   body-backed      — title, description, design, acceptance: live in markdown
+#                      body (not YAML frontmatter); writing them to YAML
+#                      creates desync (cmd_create emits them as body sections)
+#   validated        — priority, parent, type: YAML-backed, value must match rules
+#   freeform         — anything else, as long as the key name is parser-safe
+#
+# Returns 0 if the update is allowed, 1 with a clear error otherwise.
+validate_field_update() {
+    local field="$1"
+    local value="$2"
+
+    # Guard: field-name syntax — prevents regex-injection into update_yaml_field
+    # (field is interpolated into awk's regex "^" field ":")
+    if [[ ! "$field" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]]; then
+        echo "Error: invalid field name '$field' (allowed: [A-Za-z][A-Za-z0-9_-]*)" >&2
+        return 1
+    fi
+
+    case "$field" in
+        # immutable
+        id|created)
+            echo "Error: field '$field' is immutable (would break file-name coupling / audit trail)" >&2
+            return 1
+            ;;
+        # routed to dedicated commands
+        status)
+            echo "Error: use 'tk status <id> <status>' to update status (validates allowed values)" >&2
+            return 1
+            ;;
+        deps)
+            echo "Error: use 'tk dep <id> <dep-id>' to add dependencies (validates existence)" >&2
+            return 1
+            ;;
+        links)
+            echo "Error: use 'tk link <id> <id>' to link tickets (maintains symmetric backlinks)" >&2
+            return 1
+            ;;
+        # body-backed (not YAML frontmatter)
+        title|description|design|acceptance)
+            echo "Error: '$field' is stored in the ticket's markdown body, not frontmatter. Use 'tk edit <id>' to modify body sections" >&2
+            return 1
+            ;;
+        # validated
+        priority)
+            if [[ ! "$value" =~ ^[0-4]$ ]]; then
+                echo "Error: priority must be 0-4 (got '$value')" >&2
+                return 1
+            fi
+            ;;
+        type)
+            case "$value" in
+                bug|feature|task|epic|chore) ;;
+                *)
+                    echo "Error: type must be one of: bug, feature, task, epic, chore (got '$value')" >&2
+                    return 1
+                    ;;
+            esac
+            ;;
+        parent)
+            # Parent must be an existing ticket (empty value allowed to unset)
+            if [[ -n "$value" ]]; then
+                if ! ticket_path "$value" >/dev/null 2>&1; then
+                    echo "Error: parent ticket '$value' not found" >&2
+                    return 1
+                fi
+            fi
+            ;;
+        tags)
+            # tags is reader-iterated by `tk ls -T`, `cmd_ready`, `cmd_blocked`,
+            # `cmd_show`: those readers strip [] " and split on comma, so an
+            # item containing a comma would be silently fragmented (and
+            # produce phantom -T matches). Storage roundtrip via @json works,
+            # but reader roundtrip does not. Reject comma-in-item up front.
+            # Freeform fields (release_notes, etc.) have no reader iteration
+            # and are unaffected — they pass through this case (no `tags)`
+            # match for them) into the freeform pass-through below.
+            if [[ "$value" =~ ^\[.*\]$ ]] && command -v jq &>/dev/null; then
+                if printf '%s\n' "$value" | jq -e 'type == "array" and any(.[]; tostring | test(","))' >/dev/null 2>&1; then
+                    echo "Error: tags array items must not contain commas (reader limitation: 'tk ls -T', cmd_ready, cmd_blocked split tag values on comma). Use dashes or underscores instead." >&2
+                    return 1
+                fi
+            fi
+            ;;
+        # freeform custom fields — pass through
+    esac
+    return 0
 }
 
 cmd_create() {
@@ -316,7 +430,7 @@ cmd_dep_tree() {
     in_front && /^status:/ { status = $2 }
     in_front && /^deps:/ {
         deps = $2
-        gsub(/[\[\] ]/, "", deps)
+        gsub(/[\[\] "]/, "", deps)
     }
     !in_front && /^# / && title == "" { title = substr($0, 3) }
     function store() {
@@ -500,7 +614,7 @@ cmd_dep_cycle() {
     in_front && /^status:/ { status = $2 }
     in_front && /^deps:/ {
         deps = $2
-        gsub(/[\[\] ]/, "", deps)
+        gsub(/[\[\] "]/, "", deps)
     }
     !in_front && /^# / && title == "" { title = substr($0, 3) }
     function store() {
@@ -674,10 +788,10 @@ cmd_ready() {
     in_front && /^status:/ { status = $2 }
     in_front && /^priority:/ { priority = $2 }
     in_front && /^assignee:/ { assignee = $2 }
-    in_front && /^tags:/ { tags = $2; gsub(/[\[\] ]/, "", tags) }
+    in_front && /^tags:/ { tags = $2; gsub(/[\[\] "]/, "", tags) }
     in_front && /^deps:/ {
         deps = $2
-        gsub(/[\[\] ]/, "", deps)
+        gsub(/[\[\] "]/, "", deps)
     }
     !in_front && /^# / && title == "" { title = substr($0, 3) }
     function has_tag(tags_str, tag,    i, n, arr) {
@@ -768,7 +882,7 @@ cmd_closed() {
     in_front && /^id:/ { id = $2 }
     in_front && /^status:/ { status = $2 }
     in_front && /^assignee:/ { assignee = $2 }
-    in_front && /^tags:/ { tags = $2; gsub(/[\[\] ]/, "", tags) }
+    in_front && /^tags:/ { tags = $2; gsub(/[\[\] "]/, "", tags) }
     !in_front && /^# / && title == "" { title = substr($0, 3) }
     function has_tag(tags_str, tag,    i, n, arr) {
         n = split(tags_str, arr, ",")
@@ -811,10 +925,10 @@ cmd_blocked() {
     in_front && /^status:/ { status = $2 }
     in_front && /^priority:/ { priority = $2 }
     in_front && /^assignee:/ { assignee = $2 }
-    in_front && /^tags:/ { tags = $2; gsub(/[\[\] ]/, "", tags) }
+    in_front && /^tags:/ { tags = $2; gsub(/[\[\] "]/, "", tags) }
     in_front && /^deps:/ {
         deps = $2
-        gsub(/[\[\] ]/, "", deps)
+        gsub(/[\[\] "]/, "", deps)
     }
     !in_front && /^# / && title == "" { title = substr($0, 3) }
     function has_tag(tags_str, tag,    i, n, arr) {
@@ -958,7 +1072,9 @@ cmd_link() {
             for (i = 1; i <= n; i++) need[other_arr[i]] = 1
         }
         /^links:/ {
-            # Parse existing links
+            # Parse existing links — narrow class (no quote/space) on purpose:
+            # cmd_link only reads links it itself wrote at line 1081 (bare-CSV).
+            # External writes are blocked at validate_field_update (links case).
             gsub(/[\[\]]/, "", $0)
             sub(/^links: */, "", $0)
             m = split($0, existing, ", *")
@@ -1060,8 +1176,8 @@ cmd_show() {
     /^---$/ { in_front = !in_front; next }
     in_front && /^id:/ { id = $2 }
     in_front && /^status:/ { status = $2 }
-    in_front && /^deps:/ { deps = $2; gsub(/[\[\] ]/, "", deps) }
-    in_front && /^links:/ { links = $2; gsub(/[\[\] ]/, "", links) }
+    in_front && /^deps:/ { deps = $2; gsub(/[\[\] "]/, "", deps) }
+    in_front && /^links:/ { links = $2; gsub(/[\[\] "]/, "", links) }
     in_front && /^parent:/ { parent = $2 }
     !in_front && /^# / && title == "" { title = substr($0, 3) }
 
@@ -1280,6 +1396,8 @@ Commands:
   close <id>               Set status to closed
   reopen <id>              Set status to open
   status <id> <status>     Update status (open|in_progress|closed)
+  update <id> --field=value  Update YAML field(s) non-interactively
+                             Arrays: --field='["a", "b"]' (JSON syntax)
   dep <id> <dep-id>        Add dependency (id depends on dep-id)
   dep tree [--full] <id>   Show dependency tree (--full disables dedup)
   dep cycle                Find dependency cycles in open tickets
@@ -1315,6 +1433,79 @@ Plugin descriptions: comment '# tk-plugin: text' or --tk-describe flag
 Tickets stored as markdown files in .tickets/
 Supports partial ID matching (e.g., '$cmd show 5c4' matches 'nw-5c46')
 EOF
+}
+
+cmd_update() {
+    if [[ $# -lt 2 ]]; then
+        echo "Usage: $(basename "$0") update <id> --field=value [--field2=value2 ...]" >&2
+        return 1
+    fi
+
+    local file
+    file=$(ticket_path "$1") || return 1
+    shift
+
+    local updated=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --*=*)
+                local arg="${1#--}"
+                local field="${arg%%=*}"
+                local value="${arg#*=}"
+
+                # Validate field-name syntax, classify category, validate value.
+                # Runs BEFORE JSON array handling so that "invalid field name"
+                # errors take priority over "invalid JSON" errors — specific
+                # diagnosis beats generic.
+                validate_field_update "$field" "$value" || return 1
+
+                # Handle JSON array syntax -> YAML flow array
+                if [[ "$value" =~ ^\[.*\]$ ]]; then
+                    # Fail-fast: jq is required for JSON-array values. Without
+                    # jq, we can't validate the input or emit safe YAML, and a
+                    # silent pass-through risks storing malformed values that
+                    # downstream readers misinterpret. jq is universally
+                    # available on supported platforms.
+                    if ! command -v jq &>/dev/null; then
+                        echo "Error: jq is required for JSON-array values (field '$field')" >&2
+                        return 1
+                    fi
+                    # jq exits non-zero on invalid JSON. @json emits
+                    # JSON-encoded strings — values with commas, quotes,
+                    # or backslashes roundtrip losslessly as valid YAML 1.2
+                    # flow sequence (which is also a valid JSON array).
+                    local yaml_val
+                    yaml_val=$(printf '%s\n' "$value" | jq -er '
+                        if type == "array" then
+                            "[" + (map(@json) | join(", ")) + "]"
+                        else
+                            .
+                        end
+                    ' 2>&1) || {
+                        echo "Error: invalid JSON for $field" >&2
+                        return 1
+                    }
+                    value="$yaml_val"
+                fi
+
+                update_yaml_field "$file" "$field" "$value"
+                updated=$((updated + 1))
+                shift
+                ;;
+            *)
+                echo "Error: unknown argument '$1'" >&2
+                echo "Usage: $(basename "$0") update <id> --field=value" >&2
+                return 1
+                ;;
+        esac
+    done
+
+    if [[ $updated -gt 0 ]]; then
+        echo "Updated $updated field(s) on $(basename "$file" .md)"
+    else
+        echo "No fields specified" >&2
+        return 1
+    fi
 }
 
 # Main dispatch
@@ -1373,6 +1564,7 @@ case "${1:-help}" in
     blocked) shift; cmd_blocked "$@" ;;
     closed) shift; cmd_closed "$@" ;;
     show)   shift; cmd_show "$@" ;;
+    update) shift; cmd_update "$@" ;;
     add-note) shift; cmd_add_note "$@" ;;
     help|--help|-h) cmd_help ;;
     *)

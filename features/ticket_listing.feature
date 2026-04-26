@@ -161,3 +161,16 @@ Feature: Ticket Listing
     When I run "ticket closed"
     Then the command should succeed
     And the output should not contain "done-0001"
+
+  Scenario: ls -T filter works with quoted tags (after tk update)
+    Given a ticket exists with ID "tag-001" and title "Quoted tags"
+    When I run "ticket update tag-001 '--tags=[\"bug\",\"critical\"]'"
+    And I run "ticket ls -T critical"
+    Then the command should succeed
+    And the output should contain "tag-001"
+
+  Scenario: ls -T filter works with legacy unquoted tags (backward compat)
+    When I run "ticket create 'Legacy tags' --tags bug,urgent"
+    And I run "ticket ls -T urgent"
+    Then the command should succeed
+    And the output should contain "Legacy tags"

@@ -2,10 +2,22 @@
 
 ## [Unreleased]
 
+### Fixed
+- `update_yaml_field` now works on macOS/BSD (awk instead of GNU-specific sed for field insertion)
+- `update` command for non-iterated freeform array fields (e.g. `release_notes`) no longer rejects values whose items contain commas. Storage uses structural quoting via `jq @json`, which roundtrips losslessly as valid YAML 1.2 flow sequences (also valid JSON arrays). `tk query` returns the values verbatim.
+- `update_yaml_field` now uses `ENVIRON` instead of `awk -v` for the value, preserving JSON escape sequences (`\"`, `\\`, `\n`) byte-exact. Previously, `awk -v` would unescape those sequences and corrupt stored YAML when arrays contained quoted strings.
+
 ### Changed
+- `update` command now emits valid YAML flow sequences with JSON-escaped values (via `jq @json`). Previously the output was bare CSV with no quoting, which lost value boundaries when items contained commas.
+- `update` command now requires `jq` for JSON-array values (`--field='[…]'`). Previously, `jq` absence triggered a regex-based fallback that accepted commas-in-items inconsistently. The fail-fast error directs users to install `jq`. Scalar updates are unaffected.
+- `ticket-query` now detects the new quoted form (`["bug", "urgent"]`) and emits it verbatim as already-valid JSON. Legacy unquoted `tickets/*.md` (`[bug, urgent]`) keep working via the existing comma-split branch — no migration required.
+- Tag/deps/links readers in `cmd_ready`, `cmd_closed`, `cmd_blocked`, `cmd_show`, `cmd_dep_tree`, `cmd_dep_cycle`, and `plugins/ticket-ls` now widen the gsub character class from `[\[\] ]` to `[\[\] "]`, accepting both quoted and unquoted inline arrays.
+- `update` command continues to reject comma-in-item for `tags` specifically (reader limitation: `tk ls -T`, `cmd_ready`, `cmd_blocked`, `cmd_show` split tag values on comma). The new error message names the reader limitation explicitly. Other freeform array fields are unaffected.
 - Extracted `edit`, `ls`, `query`, and `migrate-beads` commands to plugins (ticket-extras)
 
 ### Added
+- `update` command for non-interactive YAML field updates (`tk update <id> --field=value`)
+- JSON array syntax support in update command (requires jq): `--tags='["a", "b"]'`
 - Plugin system: executables named `tk-<cmd>` or `ticket-<cmd>` in PATH are invoked automatically
 - `super` command to bypass plugins and run built-in commands directly
 - `TICKETS_DIR` and `TK_SCRIPT` environment variables exported for plugins

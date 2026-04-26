@@ -356,16 +356,18 @@ def step_output_empty(context):
     assert context.stdout == '', f"Expected empty output but got: {context.stdout}"
 
 
-@then(r'the output should contain "(?P<text>[^"]+)"')
+@then(r'the output should contain "(?P<text>(?:[^"\\]|\\.)+)"')
 def step_output_contains(context, text):
     """Assert output contains text."""
+    text = text.replace('\\"', '"').replace('\\\\', '\\')
     output = context.stdout + context.stderr
     assert text in output, f"Expected output to contain '{text}'\nActual output: {output}"
 
 
-@then(r'the output should not contain "(?P<text>[^"]+)"')
+@then(r'the output should not contain "(?P<text>(?:[^"\\]|\\.)+)"')
 def step_output_not_contains(context, text):
     """Assert output does not contain text."""
+    text = text.replace('\\"', '"').replace('\\\\', '\\')
     output = context.stdout + context.stderr
     assert text not in output, f"Expected output to NOT contain '{text}'\nActual output: {output}"
 
@@ -456,9 +458,12 @@ def step_created_ticket_has_timestamp(context):
         f"No valid created timestamp found\nContent: {content}"
 
 
-@then(r'ticket "(?P<ticket_id>[^"]+)" should have field "(?P<field>[^"]+)" with value "(?P<value>[^"]+)"')
+@then(r'ticket "(?P<ticket_id>[^"]+)" should have field "(?P<field>[^"]+)" with value "(?P<value>(?:[^"\\]|\\.)*)"')
 def step_ticket_has_field_value(context, ticket_id, field, value):
     """Assert ticket has a field with specific value."""
+    # Unescape \" to " (and \\ to \) in the expected value, mirroring `I run`
+    value = value.replace('\\"', '"').replace('\\\\', '\\')
+
     ticket_path = Path(context.test_dir) / '.tickets' / f'{ticket_id}.md'
     content = ticket_path.read_text()
 

@@ -46,3 +46,16 @@ Feature: Ticket Query
     When I run "ticket query"
     Then the command should succeed
     And the JSONL deps field should be a JSON array
+
+  Scenario: Query emits valid JSON for new quoted tags (after tk update)
+    Given a ticket exists with ID "query-001" and title "Quoted tags"
+    When I run "ticket update query-001 '--tags=[\"bug\",\"urgent\"]'"
+    And I run "ticket query"
+    Then the command should succeed
+    And the output should contain "\"tags\":[\"bug\", \"urgent\"]"
+
+  Scenario: Query still handles legacy unquoted tags (bare CSV, backward compat)
+    When I run "ticket create 'Legacy tags' --tags bug,urgent"
+    And I run "ticket query"
+    Then the command should succeed
+    And the output should contain "\"tags\":[\"bug\",\"urgent\"]"
