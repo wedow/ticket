@@ -31,15 +31,21 @@ function emit() {
             val = field_vals[i]
             # Handle arrays
             if (val ~ /^\[.*\]$/) {
-                gsub(/^\[|\]$/, "", val)
-                n = split(val, items, ", *")
-                printf "\"%s\":[", key
-                for (j = 1; j <= n; j++) {
-                    if (j > 1) printf ","
-                    gsub(/^ +| +$/, "", items[j])
-                    if (items[j] != "") printf "\"%s\"", items[j]
+                if (val ~ /^\[[[:space:]]*"/) {
+                    # New quoted form — already valid JSON, emit verbatim.
+                    printf "\"%s\":%s", key, val
+                } else {
+                    # Legacy unquoted CSV — split on comma.
+                    gsub(/^\[|\]$/, "", val)
+                    n = split(val, items, ", *")
+                    printf "\"%s\":[", key
+                    for (j = 1; j <= n; j++) {
+                        if (j > 1) printf ","
+                        gsub(/^ +| +$/, "", items[j])
+                        if (items[j] != "") printf "\"%s\"", items[j]
+                    }
+                    printf "]"
                 }
-                printf "]"
             } else {
                 printf "\"%s\":\"%s\"", key, val
             }

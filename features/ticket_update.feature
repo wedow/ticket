@@ -30,7 +30,13 @@ Feature: Ticket Update Command
     When I run "ticket update test-0001 '--tags=[\"bug\",\"urgent\"]'"
     Then the command should succeed
     And the output should be "Updated 1 field(s) on test-0001"
-    And ticket "test-0001" should have field "tags" with value "[bug, urgent]"
+    And ticket "test-0001" should have field "tags" with value "[\"bug\", \"urgent\"]"
+
+  Scenario: JSON array with commas in values roundtrip
+    When I run "ticket update test-0001 '--release_notes=[\"First entry, with comma.\", \"Second entry.\"]'"
+    Then the command should succeed
+    And the output should be "Updated 1 field(s) on test-0001"
+    And ticket "test-0001" should have field "release_notes" with value "[\"First entry, with comma.\", \"Second entry.\"]"
 
   Scenario: Invalid JSON array
     When I run "ticket update test-0001 '--tags=[\"unclosed]'"
@@ -160,15 +166,20 @@ Feature: Ticket Update Command
     Then the command should fail
     And the output should contain "invalid field name"
 
-  Scenario: Reject array items with embedded commas (ecosystem limitation)
+  Scenario: tags array items must not contain commas (reader limitation)
     When I run "ticket update test-0001 '--tags=[\"urgent, internal\"]'"
     Then the command should fail
     And the output should contain "must not contain commas"
 
-  Scenario: Comma-in-item error is specific, not generic (jq error coupling)
+  Scenario: Comma-in-tag rejection error names the reason (not generic JSON error)
     When I run "ticket update test-0001 '--tags=[\"a, b\"]'"
     Then the command should fail
     And the output should contain "must not contain commas"
+
+  Scenario: Comma-in-value is allowed for non-tag freeform fields (release_notes)
+    When I run "ticket update test-0001 '--release_notes=[\"First, with comma.\", \"Second.\"]'"
+    Then the command should succeed
+    And ticket "test-0001" should have field "release_notes" with value "[\"First, with comma.\", \"Second.\"]"
 
   Scenario: Custom field names are allowed (hybrid policy, freeform category)
     When I run "ticket update test-0001 --sprint=42"

@@ -140,13 +140,16 @@ yaml_field() {
 
 # Update YAML field
 #
-# Both branches use awk with -v to pass field/value as variables. This avoids
-# sed's s/// metacharacter hazards (&, /, \) that would corrupt values or
-# break the separator. First-match-wins: for well-formed frontmatter with a
-# single definition per field, behavior is identical to a global replace.
-# For accidentally duplicated keys, the canonical first entry stays
-# authoritative and the duplicate remains visible as an artifact rather than
-# being silently mirrored.
+# Field is passed via -v (parser-safe ASCII per validate_field_update). Value
+# is passed via ENVIRON to avoid awk's -v C-style escape processing — values
+# from cmd_update may contain JSON escapes (\", \\, \n) that -v would
+# unescape, corrupting the stored YAML. ENVIRON delivers the byte-exact
+# string. This avoids sed's s/// metacharacter hazards (&, /, \) too.
+# First-match-wins: for well-formed frontmatter with a single definition per
+# field, behavior is identical to a global replace. For accidentally
+# duplicated keys, the canonical first entry stays authoritative and the
+# duplicate remains visible as an artifact rather than being silently
+# mirrored.
 update_yaml_field() {
     local file="$1"
     local field="$2"
@@ -157,14 +160,16 @@ update_yaml_field() {
         # Replace existing field — exit 2 if no match found, to prevent
         # silently writing an unchanged file (defense against encoding/
         # race issues that slip past the _grep gate).
-        awk -v field="$field" -v value="$value" '
+        TK_FIELD_VALUE="$value" awk -v field="$field" '
+            BEGIN { value = ENVIRON["TK_FIELD_VALUE"] }
             !done && $0 ~ "^" field ":" { print field ": " value; done=1; next }
             { print }
             END { if (!done) exit 2 }
         ' "$file" > "$tmp" && mv "$tmp" "$file"
     else
         # Insert after first --- (beginning of frontmatter)
-        awk -v field="$field" -v value="$value" '
+        TK_FIELD_VALUE="$value" awk -v field="$field" '
+            BEGIN { value = ENVIRON["TK_FIELD_VALUE"] }
             NR==1 && /^---$/ { print; print field ": " value; done=1; next }
             { print }
             END { if (!done) exit 2 }
@@ -238,6 +243,22 @@ validate_field_update() {
             if [[ -n "$value" ]]; then
                 if ! ticket_path "$value" >/dev/null 2>&1; then
                     echo "Error: parent ticket '$value' not found" >&2
+                    return 1
+                fi
+            fi
+            ;;
+        tags)
+            # tags is reader-iterated by `tk ls -T`, `cmd_ready`, `cmd_blocked`,
+            # `cmd_show`: those readers strip [] " and split on comma, so an
+            # item containing a comma would be silently fragmented (and
+            # produce phantom -T matches). Storage roundtrip via @json works,
+            # but reader roundtrip does not. Reject comma-in-item up front.
+            # Freeform fields (release_notes, etc.) have no reader iteration
+            # and are unaffected — they pass through this case (no `tags)`
+            # match for them) into the freeform pass-through below.
+            if [[ "$value" =~ ^\[.*\]$ ]] && command -v jq &>/dev/null; then
+                if printf '%s\n' "$value" | jq -e 'type == "array" and any(.[]; tostring | test(","))' >/dev/null 2>&1; then
+                    echo "Error: tags array items must not contain commas (reader limitation: 'tk ls -T', cmd_ready, cmd_blocked split tag values on comma). Use dashes or underscores instead." >&2
                     return 1
                 fi
             fi
@@ -409,7 +430,7 @@ cmd_dep_tree() {
     in_front && /^status:/ { status = $2 }
     in_front && /^deps:/ {
         deps = $2
-        gsub(/[\[\] ]/, "", deps)
+        gsub(/[\[\] "]/, "", deps)
     }
     !in_front && /^# / && title == "" { title = substr($0, 3) }
     function store() {
@@ -593,7 +614,7 @@ cmd_dep_cycle() {
     in_front && /^status:/ { status = $2 }
     in_front && /^deps:/ {
         deps = $2
-        gsub(/[\[\] ]/, "", deps)
+        gsub(/[\[\] "]/, "", deps)
     }
     !in_front && /^# / && title == "" { title = substr($0, 3) }
     function store() {
@@ -767,10 +788,10 @@ cmd_ready() {
     in_front && /^status:/ { status = $2 }
     in_front && /^priority:/ { priority = $2 }
     in_front && /^assignee:/ { assignee = $2 }
-    in_front && /^tags:/ { tags = $2; gsub(/[\[\] ]/, "", tags) }
+    in_front && /^tags:/ { tags = $2; gsub(/[\[\] "]/, "", tags) }
     in_front && /^deps:/ {
         deps = $2
-        gsub(/[\[\] ]/, "", deps)
+        gsub(/[\[\] "]/, "", deps)
     }
     !in_front && /^# / && title == "" { title = substr($0, 3) }
     function has_tag(tags_str, tag,    i, n, arr) {
@@ -861,7 +882,7 @@ cmd_closed() {
     in_front && /^id:/ { id = $2 }
     in_front && /^status:/ { status = $2 }
     in_front && /^assignee:/ { assignee = $2 }
-    in_front && /^tags:/ { tags = $2; gsub(/[\[\] ]/, "", tags) }
+    in_front && /^tags:/ { tags = $2; gsub(/[\[\] "]/, "", tags) }
     !in_front && /^# / && title == "" { title = substr($0, 3) }
     function has_tag(tags_str, tag,    i, n, arr) {
         n = split(tags_str, arr, ",")
@@ -904,10 +925,10 @@ cmd_blocked() {
     in_front && /^status:/ { status = $2 }
     in_front && /^priority:/ { priority = $2 }
     in_front && /^assignee:/ { assignee = $2 }
-    in_front && /^tags:/ { tags = $2; gsub(/[\[\] ]/, "", tags) }
+    in_front && /^tags:/ { tags = $2; gsub(/[\[\] "]/, "", tags) }
     in_front && /^deps:/ {
         deps = $2
-        gsub(/[\[\] ]/, "", deps)
+        gsub(/[\[\] "]/, "", deps)
     }
     !in_front && /^# / && title == "" { title = substr($0, 3) }
     function has_tag(tags_str, tag,    i, n, arr) {
@@ -1051,7 +1072,9 @@ cmd_link() {
             for (i = 1; i <= n; i++) need[other_arr[i]] = 1
         }
         /^links:/ {
-            # Parse existing links
+            # Parse existing links — narrow class (no quote/space) on purpose:
+            # cmd_link only reads links it itself wrote at line 1081 (bare-CSV).
+            # External writes are blocked at validate_field_update (links case).
             gsub(/[\[\]]/, "", $0)
             sub(/^links: */, "", $0)
             m = split($0, existing, ", *")
@@ -1153,8 +1176,8 @@ cmd_show() {
     /^---$/ { in_front = !in_front; next }
     in_front && /^id:/ { id = $2 }
     in_front && /^status:/ { status = $2 }
-    in_front && /^deps:/ { deps = $2; gsub(/[\[\] ]/, "", deps) }
-    in_front && /^links:/ { links = $2; gsub(/[\[\] ]/, "", links) }
+    in_front && /^deps:/ { deps = $2; gsub(/[\[\] "]/, "", deps) }
+    in_front && /^links:/ { links = $2; gsub(/[\[\] "]/, "", links) }
     in_front && /^parent:/ { parent = $2 }
     !in_front && /^# / && title == "" { title = substr($0, 3) }
 
@@ -1438,48 +1461,31 @@ cmd_update() {
 
                 # Handle JSON array syntax -> YAML flow array
                 if [[ "$value" =~ ^\[.*\]$ ]]; then
-                    if command -v jq &>/dev/null; then
-                        # jq exits non-zero on invalid JSON. It also exits
-                        # non-zero via error() if any array item contains a
-                        # comma — comma-in-item would corrupt round-trip
-                        # through consumers that split on ", *" (ticket-query,
-                        # ticket-ls, internal awk splits).
-                        local yaml_val
-                        yaml_val=$(echo "$value" | jq -er '
-                            if type == "array" then
-                                if any(.[] | tostring; test(",")) then
-                                    error("array item contains comma")
-                                else
-                                    "[" + (map(tostring) | join(", ")) + "]"
-                                end
-                            else
-                                .
-                            end
-                        ' 2>&1) || {
-                            if echo "$yaml_val" | grep -q "array item contains comma"; then
-                                echo "Error: array items for '$field' must not contain commas. The ticket ecosystem stores arrays as comma-separated values and has no quote-aware parsing in consumers (ticket-query, ticket-ls). Use dashes or underscores instead." >&2
-                            else
-                                echo "Error: invalid JSON for $field" >&2
-                            fi
-                            return 1
-                        }
-                        value="$yaml_val"
-                    else
-                        # This branch is exercised only when jq is absent;
-                        # manual verification required on a jq-less system.
-                        # Still guard the contract: reject items that contain
-                        # commas, since downstream consumers split on commas.
-                        local inner="${value#[}"
-                        inner="${inner%]}"
-                        # Require 1+ non-quote chars on each side of the comma:
-                        # that anchors the comma INSIDE a quoted string and
-                        # excludes the separator case '","' between items.
-                        if echo "$inner" | grep -qE '"[^"]+,[^"]+"'; then
-                            echo "Error: array items for '$field' must not contain commas (ecosystem limitation)" >&2
-                            return 1
-                        fi
-                        # Value passes through as-is (user's responsibility beyond comma check)
+                    # Fail-fast: jq is required for JSON-array values. Without
+                    # jq, we can't validate the input or emit safe YAML, and a
+                    # silent pass-through risks storing malformed values that
+                    # downstream readers misinterpret. jq is universally
+                    # available on supported platforms.
+                    if ! command -v jq &>/dev/null; then
+                        echo "Error: jq is required for JSON-array values (field '$field')" >&2
+                        return 1
                     fi
+                    # jq exits non-zero on invalid JSON. @json emits
+                    # JSON-encoded strings — values with commas, quotes,
+                    # or backslashes roundtrip losslessly as valid YAML 1.2
+                    # flow sequence (which is also a valid JSON array).
+                    local yaml_val
+                    yaml_val=$(printf '%s\n' "$value" | jq -er '
+                        if type == "array" then
+                            "[" + (map(@json) | join(", ")) + "]"
+                        else
+                            .
+                        end
+                    ' 2>&1) || {
+                        echo "Error: invalid JSON for $field" >&2
+                        return 1
+                    }
+                    value="$yaml_val"
                 fi
 
                 update_yaml_field "$file" "$field" "$value"
