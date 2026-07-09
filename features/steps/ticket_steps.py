@@ -27,6 +27,16 @@ def get_ticket_script(context):
     return str(Path(context.project_dir) / 'ticket')
 
 
+def command_env(context):
+    """Build an environment for running ticket commands in tests."""
+    env = os.environ.copy()
+    if hasattr(context, 'plugin_dir'):
+        env['PATH'] = context.plugin_dir + ':' + env.get('PATH', '')
+    if hasattr(context, 'plugin_libexec_dir'):
+        env['TK_PLUGIN_DIR'] = context.plugin_libexec_dir
+    return env
+
+
 def create_ticket(context, ticket_id, title, priority=2, parent=None):
     """Helper to create a ticket file."""
     tickets_dir = Path(context.test_dir) / '.tickets'
@@ -267,7 +277,7 @@ def step_run_command_with_env(context, command, tickets_dir):
     cwd = getattr(context, 'working_dir', context.test_dir)
 
     # Resolve tickets_dir relative to test_dir
-    env = os.environ.copy()
+    env = command_env(context)
     env['TICKETS_DIR'] = str(Path(context.test_dir) / tickets_dir)
 
     result = subprocess.run(
@@ -299,10 +309,7 @@ def step_run_command(context, command):
     # Use working_dir if set (from subdirectory step), otherwise test_dir
     cwd = getattr(context, 'working_dir', context.test_dir)
 
-    # Include plugin directory in PATH if plugins were created
-    env = os.environ.copy()
-    if hasattr(context, 'plugin_dir'):
-        env['PATH'] = context.plugin_dir + ':' + env.get('PATH', '')
+    env = command_env(context)
 
     result = subprocess.run(
         cmd,
@@ -633,6 +640,20 @@ def create_plugin(context, name, content):
     return plugin_path
 
 
+def create_libexec_plugin(context, name, content):
+    """Helper to create a plugin script in the test libexec plugin directory."""
+    if not hasattr(context, 'plugin_libexec_dir'):
+        context.plugin_libexec_dir = str(Path(context.test_dir) / 'libexec_plugins')
+
+    plugin_dir = Path(context.plugin_libexec_dir)
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+
+    plugin_path = plugin_dir / name
+    plugin_path.write_text(content)
+    plugin_path.chmod(0o755)
+    return plugin_path
+
+
 def run_with_plugin_path(context, command):
     """Run a command with the plugin directory in PATH."""
     command = command.replace('\\"', '"')
@@ -641,9 +662,7 @@ def run_with_plugin_path(context, command):
 
     cwd = getattr(context, 'working_dir', context.test_dir)
 
-    env = os.environ.copy()
-    if hasattr(context, 'plugin_dir'):
-        env['PATH'] = context.plugin_dir + ':' + env.get('PATH', '')
+    env = command_env(context)
 
     result = subprocess.run(
         cmd,
@@ -713,6 +732,38 @@ def step_plugin_with_description(context, name, desc):
 echo "plugin executed"
 '''
     create_plugin(context, name, content)
+
+
+@given(r'a bundled plugin "(?P<name>[^"]+)" that outputs "(?P<output>[^"]+)"')
+def step_bundled_plugin_outputs(context, name, output):
+    """Create a bundled plugin that outputs a fixed string."""
+    content = f'''#!/usr/bin/env bash
+# tk-plugin: Test bundled plugin
+echo "{output}"
+'''
+    create_libexec_plugin(context, name, content)
+
+
+@given(r'a bundled plugin "(?P<name>[^"]+)" with description "(?P<desc>[^"]+)"')
+def step_bundled_plugin_with_description(context, name, desc):
+    """Create a bundled plugin with a specific description."""
+    content = f'''#!/usr/bin/env bash
+# tk-plugin: {desc}
+echo "bundled plugin executed"
+'''
+    create_libexec_plugin(context, name, content)
+
+
+@given(r'a bundled plugin "(?P<name>[^"]+)" that outputs plugin context and arguments')
+def step_bundled_plugin_outputs_context(context, name):
+    """Create a bundled plugin that outputs env context and received args."""
+    content = '''#!/usr/bin/env bash
+# tk-plugin: Output plugin context
+printf '%s\\n' "$TICKETS_DIR"
+printf '%s\\n' "$TK_SCRIPT"
+echo "$@"
+'''
+    create_libexec_plugin(context, name, content)
 
 
 @given(r'a plugin "(?P<name>[^"]+)" that outputs "(?P<output>[^"]+)" without metadata')

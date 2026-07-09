@@ -7,6 +7,7 @@
 
 ### Added
 - Plugin system: executables named `tk-<cmd>` or `ticket-<cmd>` in PATH are invoked automatically
+- Plugin discovery from install-private `libexec/ticket/plugins` directories, with `TK_PLUGIN_DIR` override support
 - `super` command to bypass plugins and run built-in commands directly
 - `TICKETS_DIR` and `TK_SCRIPT` environment variables exported for plugins
 - `help` command lists installed plugins with descriptions
