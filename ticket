@@ -1222,6 +1222,51 @@ cmd_add_note() {
     echo "Note added to $(basename "$file" .md)"
 }
 
+_tk_script_path() {
+    printf '%s/%s\n' "$(cd "$(dirname "$0")" && pwd)" "$(basename "$0")"
+}
+
+_plugin_libexec_dir() {
+    if [[ -n "${TK_PLUGIN_DIR:-}" ]]; then
+        printf '%s\n' "$TK_PLUGIN_DIR"
+        return 0
+    fi
+
+    printf '%s/../libexec/ticket/plugins\n' "$(cd "$(dirname "$0")" && pwd)"
+}
+
+_resolve_plugin() {
+    local plugin="$1" path plugin_dir
+
+    if path=$(command -v "$plugin" 2>/dev/null); then
+        [[ -n "$path" ]] && { printf '%s\n' "$path"; return 0; }
+    fi
+
+    plugin_dir=$(_plugin_libexec_dir)
+    path="$plugin_dir/$plugin"
+    if [[ -x "$path" && ! -d "$path" ]]; then
+        printf '%s\n' "$path"
+        return 0
+    fi
+
+    return 1
+}
+
+_plugin_candidates() {
+    local prefix="$1" plugin_dir plugin_path
+
+    compgen -c "${prefix}-" 2>/dev/null | sort -u || true
+
+    plugin_dir=$(_plugin_libexec_dir)
+    if [[ -d "$plugin_dir" ]]; then
+        for plugin_path in "$plugin_dir"/"${prefix}-"*; do
+            [[ -e "$plugin_path" ]] || continue
+            [[ -x "$plugin_path" && ! -d "$plugin_path" ]] || continue
+            printf '%s\n' "${plugin_path##*/}"
+        done | sort -u
+    fi
+}
+
 # List installed plugins with descriptions
 # Scripts: # tk-plugin: description (comment in first 10 lines)
 # Binaries: --tk-describe flag outputs description
@@ -1237,7 +1282,7 @@ _list_plugins() {
             case " $seen " in *" $cmd "*) continue ;; esac
             seen="$seen $cmd"
 
-            path=$(command -v "$plugin" 2>/dev/null) || continue
+            path=$(_resolve_plugin "$plugin") || continue
             [[ -f "$path" ]] || continue
 
             desc=""
@@ -1253,7 +1298,7 @@ _list_plugins() {
             fi
 
             printf "  %-22s %s\n" "$cmd" "${desc:-(no description)}"
-        done < <(compgen -c "${prefix}-" 2>/dev/null | sort -u)
+        done < <(_plugin_candidates "$prefix")
     done
 }
 
@@ -1300,7 +1345,7 @@ EOF
     if [[ -n "$plugins" ]]; then
         cat << EOF
 
-Plugins (tk-<cmd> or ticket-<cmd> in PATH):
+Plugins (tk-<cmd> or ticket-<cmd>):
 $plugins
 EOF
     fi
@@ -1331,7 +1376,7 @@ fi
 if [[ $_tk_super -eq 0 && -n "${1:-}" && "${1:-}" != "help" && "${1:-}" != "--help" && "${1:-}" != "-h" ]]; then
     for _prefix in tk ticket; do
         _plugin="${_prefix}-$1"
-        if command -v "$_plugin" &>/dev/null; then
+        if _plugin_path=$(_resolve_plugin "$_plugin"); then
             # Export context for plugins
             if [[ -z "${TICKETS_DIR:-}" ]]; then
                 if _found=$(find_tickets_dir 2>/dev/null); then
@@ -1345,9 +1390,9 @@ if [[ $_tk_super -eq 0 && -n "${1:-}" && "${1:-}" != "help" && "${1:-}" != "--he
                 fi
                 export TICKETS_DIR
             fi
-            export TK_SCRIPT="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+            export TK_SCRIPT="$(_tk_script_path)"
             shift
-            exec "$_plugin" "$@"
+            exec "$_plugin_path" "$@"
         fi
     done
 fi
