@@ -64,6 +64,74 @@ else
     _grep() { grep "$@"; }
 fi
 
+ARCHIVE_SUBDIR="archive"
+ARCHIVE_INDEX="index"
+
+archive_dir() {
+    echo "$TICKETS_DIR/$ARCHIVE_SUBDIR"
+}
+
+archive_index() {
+    echo "$(archive_dir)/$ARCHIVE_INDEX"
+}
+
+is_archived_ticket() {
+    [[ "$1" == "$(archive_dir)/"*.md ]]
+}
+
+# Populate the argv list used by metadata-heavy commands. Active tickets remain
+# individual files; archived tickets are represented by one compact index.
+set_ticket_metadata_files() {
+    TICKET_METADATA_FILES=()
+    local file index
+    for file in "$TICKETS_DIR"/*.md; do
+        [[ -f "$file" ]] && TICKET_METADATA_FILES+=("$file")
+    done
+    index=$(archive_index)
+    [[ -f "$index" ]] && TICKET_METADATA_FILES+=("$index")
+    [[ ${#TICKET_METADATA_FILES[@]} -eq 0 ]] && TICKET_METADATA_FILES+=("/dev/null")
+    return 0
+}
+
+rebuild_archive_index() {
+    local dir index tmp file
+    local -a files=()
+    dir=$(archive_dir)
+    index=$(archive_index)
+    mkdir -p "$dir"
+
+    for file in "$dir"/*.md; do
+        [[ -f "$file" ]] && files+=("$file")
+    done
+
+    tmp="${index}.tmp.$$"
+    if [[ ${#files[@]} -eq 0 ]]; then
+        : > "$tmp"
+    else
+        awk '
+        FNR == 1 {
+            name = FILENAME
+            sub(/^.*\//, "", name)
+            print "@@tk-file " name
+            in_front = 0
+            have_title = 0
+        }
+        /^---$/ { in_front = !in_front; print; next }
+        in_front && /^(id|status|deps|links|parent|priority|assignee|tags):/ { print; next }
+        !in_front && /^# / && !have_title { print; have_title = 1; nextfile }
+        ' "${files[@]}" > "$tmp"
+    fi
+    mv "$tmp" "$index"
+}
+
+require_active_ticket() {
+    if is_archived_ticket "$1"; then
+        echo "Error: archived ticket '$(basename "$1" .md)' must be reopened before editing relationships" >&2
+        return 1
+    fi
+    return 0
+}
+
 # Portable ISO date (GNU date supports -Iseconds, BSD date does not)
 _iso_date() {
     date -u +%Y-%m-%dT%H:%M:%SZ
@@ -107,15 +175,21 @@ ticket_path() {
     # Trim leading/trailing whitespace (handles Claude/agent quirks)
     read -r id <<< "$id"
     local exact="$TICKETS_DIR/${id}.md"
+    local archived_exact
+    archived_exact="$(archive_dir)/${id}.md"
 
     if [[ -f "$exact" ]]; then
         echo "$exact"
         return 0
     fi
+    if [[ -f "$archived_exact" ]]; then
+        echo "$archived_exact"
+        return 0
+    fi
 
     # Try partial match (anywhere in filename)
     local matches
-    matches=$(find "$TICKETS_DIR" -maxdepth 1 -name "*${id}*.md" 2>/dev/null | head -2)
+    matches=$(find "$TICKETS_DIR" -maxdepth 2 -type f -name "*${id}*.md" 2>/dev/null | head -2)
     local count
     count=$(echo "$matches" | _grep -c . || true)
 
@@ -261,6 +335,12 @@ cmd_status() {
     file=$(ticket_path "$id") || return 1
 
     update_yaml_field "$file" "status" "$status"
+    if is_archived_ticket "$file" && [[ "$status" != "closed" ]]; then
+        local restored="$TICKETS_DIR/$(basename "$file")"
+        mv "$file" "$restored"
+        rebuild_archive_index
+        file="$restored"
+    fi
     echo "Updated $(basename "$file" .md) -> $status"
 }
 
@@ -304,8 +384,15 @@ cmd_dep_tree() {
         return 1
     fi
 
+    set_ticket_metadata_files
     awk -v root_pattern="$root_id" -v full_mode="$full_mode" '
     BEGIN { FS=": "; in_front=0 }
+    /^@@tk-file / {
+        if (prev_file) store()
+        id=""; status=""; title=""; deps=""; in_front=0
+        prev_file=substr($0, 11)
+        next
+    }
     FNR==1 {
         if (prev_file) store()
         id=""; status=""; title=""; deps=""; in_front=0
@@ -484,12 +571,19 @@ cmd_dep_tree() {
             print_stack_path[print_sp] = path
         }
     }
-    ' "$TICKETS_DIR"/*.md 2>/dev/null
+    ' "${TICKET_METADATA_FILES[@]}" 2>/dev/null
 }
 
 cmd_dep_cycle() {
+    set_ticket_metadata_files
     awk '
     BEGIN { FS=": "; in_front=0 }
+    /^@@tk-file / {
+        if (prev_file) store()
+        id=""; status=""; title=""; deps=""; in_front=0
+        prev_file=substr($0, 11)
+        next
+    }
     FNR==1 {
         if (prev_file) store()
         id=""; status=""; title=""; deps=""; in_front=0
@@ -595,7 +689,7 @@ cmd_dep_cycle() {
             }
         }
     }
-    ' "$TICKETS_DIR"/*.md 2>/dev/null
+    ' "${TICKET_METADATA_FILES[@]}" 2>/dev/null
 }
 
 cmd_dep() {
@@ -622,6 +716,7 @@ cmd_dep() {
     local dep_id="$2"
     local file
     file=$(ticket_path "$id") || return 1
+    require_active_ticket "$file" || return 1
 
     # Verify dependency exists and resolve to full ID
     local dep_file
@@ -662,8 +757,15 @@ cmd_ready() {
         esac
     done
 
+    set_ticket_metadata_files
     awk -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" '
     BEGIN { FS=": "; in_front=0 }
+    /^@@tk-file / {
+        if (prev_file) store()
+        id=""; status=""; title=""; deps=""; priority=""; assignee=""; tags=""; in_front=0
+        prev_file=substr($0, 11)
+        next
+    }
     FNR==1 {
         if (prev_file) store()
         id=""; status=""; title=""; deps=""; priority=""; assignee=""; tags=""; in_front=0
@@ -737,7 +839,7 @@ cmd_ready() {
             printf "%-8s [P%s][%s] - %s\n", f[2], f[1], f[3], f[4]
         }
     }
-    ' "$TICKETS_DIR"/*.md 2>/dev/null
+    ' "${TICKET_METADATA_FILES[@]}" 2>/dev/null
 }
 
 cmd_closed() {
@@ -754,10 +856,18 @@ cmd_closed() {
     done
 
     # List files by mtime (most recent first), filter closed, limit output
-    local files
-    files=$(ls -t "$TICKETS_DIR"/*.md 2>/dev/null | head -n 100)
-    [[ -z "$files" ]] && return 0
-    echo "$files" | xargs awk -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" '
+    local file
+    local -a candidates=() recent=()
+    for file in "$TICKETS_DIR"/*.md "$(archive_dir)"/*.md; do
+        [[ -f "$file" ]] && candidates+=("$file")
+    done
+    [[ ${#candidates[@]} -eq 0 ]] && return 0
+    while IFS= read -r file && [[ ${#recent[@]} -lt 100 ]]; do
+        [[ -n "$file" ]] && recent+=("$file")
+    done < <(ls -t "${candidates[@]}" 2>/dev/null)
+    [[ ${#recent[@]} -eq 0 ]] && return 0
+
+    awk -v limit="$limit" -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" '
     BEGIN { FS=": "; in_front=0 }
     FNR==1 {
         if (prev_file) emit()
@@ -776,15 +886,16 @@ cmd_closed() {
         return 0
     }
     function emit() {
-        if (id != "" && (status == "closed" || status == "done") && (assignee_filter == "" || assignee == assignee_filter) && (tag_filter == "" || has_tag(tags, tag_filter))) {
+        if (emitted < limit && id != "" && (status == "closed" || status == "done") && (assignee_filter == "" || assignee == assignee_filter) && (tag_filter == "" || has_tag(tags, tag_filter))) {
             output[++count] = sprintf("%-8s [%s] - %s", id, status, title)
+            emitted++
         }
     }
     END {
         if (prev_file) emit()
         for (i = 1; i <= count; i++) print output[i]
     }
-    ' | head -n "$limit"
+    ' "${recent[@]}"
 }
 
 cmd_blocked() {
@@ -799,8 +910,15 @@ cmd_blocked() {
         esac
     done
 
+    set_ticket_metadata_files
     awk -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" '
     BEGIN { FS=": "; in_front=0 }
+    /^@@tk-file / {
+        if (prev_file) store()
+        id=""; status=""; title=""; deps=""; priority=""; assignee=""; tags=""; in_front=0
+        prev_file=substr($0, 11)
+        next
+    }
     FNR==1 {
         if (prev_file) store()
         id=""; status=""; title=""; deps=""; priority=""; assignee=""; tags=""; in_front=0
@@ -883,7 +1001,7 @@ cmd_blocked() {
             printf "%-8s [P%s][%s] - %s <- %s\n", f[2], f[1], f[3], f[4], f[5]
         }
     }
-    ' "$TICKETS_DIR"/*.md 2>/dev/null
+    ' "${TICKET_METADATA_FILES[@]}" 2>/dev/null
 }
 
 cmd_undep() {
@@ -896,6 +1014,7 @@ cmd_undep() {
     local dep_id="$2"
     local file
     file=$(ticket_path "$id") || return 1
+    require_active_ticket "$file" || return 1
 
     # Resolve dep_id to full ID
     local dep_file
@@ -931,6 +1050,7 @@ cmd_link() {
     for arg in "$@"; do
         local file
         file=$(ticket_path "$arg") || return 1
+        require_active_ticket "$file" || return 1
         ids+=("$(basename "$file" .md)")
         files+=("$file")
     done
@@ -1009,6 +1129,8 @@ cmd_unlink() {
     local file target_file
     file=$(ticket_path "$1") || return 1
     target_file=$(ticket_path "$2") || return 1
+    require_active_ticket "$file" || return 1
+    require_active_ticket "$target_file" || return 1
     local id target_id
     id=$(basename "$file" .md)
     target_id=$(basename "$target_file" .md)
@@ -1036,6 +1158,61 @@ cmd_unlink() {
     echo "Removed link: $id <-> $target_id"
 }
 
+cmd_archive() {
+    local reindex_only=0 had_ids=0 arg file status dir existing
+    local -a files=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --reindex) reindex_only=1; shift ;;
+            -*) echo "Unknown option: $1" >&2; return 1 ;;
+            *)
+                had_ids=1
+                file=$(ticket_path "$1") || return 1
+                if is_archived_ticket "$file"; then
+                    shift
+                    continue
+                fi
+                status=$(yaml_field "$file" "status")
+                if [[ "$status" != "closed" ]]; then
+                    echo "Error: ticket '$(basename "$file" .md)' is $status; only closed tickets can be archived" >&2
+                    return 1
+                fi
+                existing=0
+                for arg in "${files[@]}"; do
+                    [[ "$arg" == "$file" ]] && existing=1
+                done
+                [[ $existing -eq 0 ]] && files+=("$file")
+                shift
+                ;;
+        esac
+    done
+
+    if [[ $reindex_only -eq 1 && $had_ids -eq 1 ]]; then
+        echo "Error: --reindex cannot be combined with ticket IDs" >&2
+        return 1
+    fi
+
+    if [[ $reindex_only -eq 0 && $had_ids -eq 0 ]]; then
+        while IFS= read -r file; do
+            [[ -n "$file" ]] && files+=("$file")
+        done < <(awk '/^status: closed$/ { print FILENAME; nextfile }' "$TICKETS_DIR"/*.md 2>/dev/null)
+    fi
+
+    dir=$(archive_dir)
+    mkdir -p "$dir"
+    if [[ ${#files[@]} -gt 0 ]]; then
+        mv "${files[@]}" "$dir/"
+    fi
+    rebuild_archive_index
+
+    if [[ $reindex_only -eq 1 ]]; then
+        echo "Rebuilt archive index"
+    else
+        echo "Archived ${#files[@]} ticket(s)"
+    fi
+}
+
 cmd_show() {
     if [[ $# -lt 1 ]]; then
         echo "Usage: ticket show <id>" >&2
@@ -1048,10 +1225,17 @@ cmd_show() {
     target_id=$(basename "$file" .md)
 
     _show_output() {
+        set_ticket_metadata_files
         awk -v target="$target_id" -v target_file="$file" '
     BEGIN { FS=": "; in_front=0 }
 
     # First pass: collect all ticket metadata
+    /^@@tk-file / {
+        if (prev_file) store()
+        id=""; status=""; title=""; deps=""; links=""; parent=""; in_front=0
+        prev_file=substr($0, 11)
+        next
+    }
     FNR==1 {
         if (prev_file) store()
         id=""; status=""; title=""; deps=""; links=""; parent=""; in_front=0
@@ -1179,7 +1363,7 @@ cmd_show() {
             }
         }
     }
-    ' "$TICKETS_DIR"/*.md 2>/dev/null
+    ' "${TICKET_METADATA_FILES[@]}" 2>/dev/null
     }
 
     if [[ -t 1 && -n "$TICKET_PAGER" ]]; then
@@ -1286,6 +1470,8 @@ Commands:
   undep <id> <dep-id>      Remove dependency
   link <id> <id> [id...]   Link tickets together (symmetric)
   unlink <id> <target-id>  Remove link between tickets
+  archive [id...]          Move closed tickets into the indexed archive
+    --reindex              Rebuild archive metadata without moving tickets
   ready [-a X] [-T X]      List open/in-progress tickets with deps resolved
   blocked [-a X] [-T X]    List open/in-progress tickets with unresolved deps
   closed [--limit=N] [-a X] [-T X] List recently closed tickets (default 20, by mtime)
@@ -1369,6 +1555,7 @@ case "${1:-help}" in
     undep)  shift; cmd_undep "$@" ;;
     link)   shift; cmd_link "$@" ;;
     unlink) shift; cmd_unlink "$@" ;;
+    archive) shift; cmd_archive "$@" ;;
     ready)  shift; cmd_ready "$@" ;;
     blocked) shift; cmd_blocked "$@" ;;
     closed) shift; cmd_closed "$@" ;;

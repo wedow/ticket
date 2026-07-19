@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # tk-plugin: Output tickets as JSON, optionally filtered with jq
-# tk-plugin-version: 1.0.0
+# tk-plugin-version: 1.0.1
 set -euo pipefail
 
 filter="${1:-}"
 
 # Generate all JSON in one awk pass
+ticket_files=()
+for file in "$TICKETS_DIR"/*.md "$TICKETS_DIR"/archive/*.md; do
+    [[ -f "$file" ]] && ticket_files+=("$file")
+done
+[[ ${#ticket_files[@]} -eq 0 ]] && ticket_files+=("/dev/null")
+
 json_output=$(awk '
 BEGIN { FS=": "; in_front=0 }
 FNR==1 {
@@ -48,7 +54,7 @@ function emit() {
     }
 }
 END { if (prev_file) emit() }
-' "$TICKETS_DIR"/*.md 2>/dev/null)
+' "${ticket_files[@]}" 2>/dev/null)
 
 if [[ -n "$filter" ]]; then
     echo "$json_output" | jq -c "select($filter)"

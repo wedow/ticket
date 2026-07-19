@@ -536,6 +536,22 @@ def step_ticket_has_timestamp_in_notes(context, ticket_id):
         f"No timestamp found in notes\nContent: {content}"
 
 
+@then(r'ticket "(?P<ticket_id>[^"]+)" should be archived')
+def step_ticket_is_archived(context, ticket_id):
+    """Assert ticket moved from the active directory into the archive."""
+    tickets_dir = Path(context.test_dir) / '.tickets'
+    assert not (tickets_dir / f'{ticket_id}.md').exists()
+    assert (tickets_dir / 'archive' / f'{ticket_id}.md').exists()
+
+
+@then(r'ticket "(?P<ticket_id>[^"]+)" should remain active')
+def step_ticket_remains_active(context, ticket_id):
+    """Assert ticket is present in the active ticket directory."""
+    tickets_dir = Path(context.test_dir) / '.tickets'
+    assert (tickets_dir / f'{ticket_id}.md').exists()
+    assert not (tickets_dir / 'archive' / f'{ticket_id}.md').exists()
+
+
 @then(r'the output line (?P<line_num>\d+) should contain "(?P<text>[^"]+)"')
 def step_output_line_contains(context, line_num, text):
     """Assert specific line of output contains text."""

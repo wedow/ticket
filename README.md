@@ -77,6 +77,8 @@ Commands:
   undep <id> <dep-id>      Remove dependency
   link <id> <id> [id...]   Link tickets together (symmetric)
   unlink <id> <target-id>  Remove link between tickets
+  archive [id...]          Move closed tickets into the indexed archive
+    --reindex              Rebuild archive metadata without moving tickets
   ls|list [--status=X] [-a X] [-T X]   List tickets
   ready [-a X] [-T X]      List open/in-progress tickets with deps resolved
   blocked [-a X] [-T X]    List open/in-progress tickets with unresolved deps
@@ -94,6 +96,22 @@ Bundled plugins (ticket-extras):
 Searches parent directories for .tickets/ (override with TICKETS_DIR env var)
 Supports partial ID matching (e.g., 'tk show 5c4' matches 'nw-5c46')
 ```
+
+## Archiving closed tickets
+
+Large ticket stores can keep routine graph commands fast by moving closed
+tickets into the indexed archive:
+
+```bash
+tk archive                 # archive every closed ticket
+tk archive abc-1234        # archive selected closed tickets
+tk archive --reindex       # rebuild metadata after resolving archive merges
+```
+
+Archived Markdown files remain available to `show`, `closed`, `ls`, `query`,
+partial-ID lookup, and dependency graph commands. Reopening an archived ticket
+moves it back into the active directory. Relationship edits require reopening
+first so the compact archive index cannot become stale.
 
 ## Plugins
 
