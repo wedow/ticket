@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tk-plugin: List tickets with optional filters
-# tk-plugin-version: 1.0.0
+# tk-plugin-version: 1.1.0
 set -euo pipefail
 
 status_filter="" assignee_filter="" tag_filter=""
@@ -15,8 +15,21 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+metadata_files=()
+for file in "$TICKETS_DIR"/*.md; do
+    [[ -f "$file" ]] && metadata_files+=("$file")
+done
+[[ -f "$TICKETS_DIR/archive/index" ]] && metadata_files+=("$TICKETS_DIR/archive/index")
+[[ ${#metadata_files[@]} -eq 0 ]] && metadata_files+=("/dev/null")
+
 awk -v status_filter="$status_filter" -v assignee_filter="$assignee_filter" -v tag_filter="$tag_filter" '
 BEGIN { FS=": "; in_front=0 }
+/^@@tk-file / {
+    if (prev_file) emit()
+    id=""; status=""; title=""; deps=""; assignee=""; tags=""; in_front=0
+    prev_file=substr($0, 11)
+    next
+}
 FNR==1 {
     if (prev_file) emit()
     id=""; status=""; title=""; deps=""; assignee=""; tags=""; in_front=0
@@ -46,4 +59,4 @@ function emit() {
         printf "%-8s [%s] - %s%s\n", id, status, title, dep_str
     }
 }
-' "$TICKETS_DIR"/*.md 2>/dev/null
+' "${metadata_files[@]}" 2>/dev/null

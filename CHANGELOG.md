@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Added
+- Add `archive` support for compacting closed tickets while preserving their
+  metadata for dependency, relationship, listing, and display commands
+
+### Fixed
+- Keep routine commands responsive on large stores by reading archived ticket
+  metadata from one compact index instead of opening every closed ticket
+- Prevent `closed` from exiting with SIGPIPE when more than 100 ticket files
+  are present
+
 ### Changed
 - Extracted `edit`, `ls`, `query`, and `migrate-beads` commands to plugins (ticket-extras)
 
@@ -15,9 +25,10 @@
 - CI scripts for publishing to Homebrew tap and AUR
 
 ### Plugins
-- ticket-edit 1.0.0: Open ticket in $EDITOR (extracted from core)
-- ticket-ls 1.0.0: List tickets with optional filters (extracted from core); `ticket-list` symlink for alias
-- ticket-query 1.0.0: Output tickets as JSON, optionally filtered with jq (extracted from core)
+- ticket-edit 1.0.1: Resolve archived IDs and require reopening before edits
+- ticket-ls 1.1.0: List active and indexed archived tickets without reopening
+  every archived Markdown file; `ticket-list` remains an alias
+- ticket-query 1.0.1: Include archived tickets in JSON output
 - ticket-migrate-beads 1.0.0: Import tickets from .beads/issues.jsonl (extracted from core)
 
 ## [0.3.2] - 2026-02-03

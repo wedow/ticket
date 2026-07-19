@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tk-plugin: Open ticket in $EDITOR
-# tk-plugin-version: 1.0.0
+# tk-plugin-version: 1.0.1
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
@@ -14,7 +14,7 @@ read -r id <<< "$id"
 # Resolve ticket file (exact or partial match)
 file="$TICKETS_DIR/${id}.md"
 if [[ ! -f "$file" ]]; then
-    matches=$(find "$TICKETS_DIR" -maxdepth 1 -name "*${id}*.md" 2>/dev/null)
+    matches=$(find "$TICKETS_DIR" -maxdepth 2 -type f -name "*${id}*.md" 2>/dev/null)
     count=$(printf '%s\n' "$matches" | grep -c . 2>/dev/null || echo 0)
     if [[ "$count" -eq 1 ]]; then
         file="$matches"
@@ -25,6 +25,11 @@ if [[ ! -f "$file" ]]; then
         echo "Error: ticket '$id' not found" >&2
         exit 1
     fi
+fi
+
+if [[ "$file" == "$TICKETS_DIR/archive/"*.md ]]; then
+    echo "Error: archived ticket '$(basename "$file" .md)' must be reopened before editing" >&2
+    exit 1
 fi
 
 if [ -t 0 ] && [ -t 1 ]; then
