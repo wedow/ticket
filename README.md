@@ -141,6 +141,23 @@ If you have `uv` [installed](https://docs.astral.sh/uv/getting-started/installat
 make test
 ```
 
+## Shell completion
+
+Optional bash/zsh completion for commands, ticket IDs, statuses, types and flags.
+
+```bash
+./install-completion.sh
+exec "$SHELL"
+```
+
+The installer writes to the standard completion directory for your shell and
+appends the source line to your rc file if needed. To wire it up by hand
+instead, source `ticket-completion.bash` or `ticket-completion.zsh` from your
+`.bashrc` / `.zshrc`.
+
+Ticket IDs are completed from the same `.tickets/` directory `tk` itself
+resolves, so it honours `TICKETS_DIR` and the walk up parent directories.
+
 ## Migrating from Beads
 
 ```bash
