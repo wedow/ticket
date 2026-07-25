@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# tk-plugin: Import tickets from .beads/issues.jsonl
+# tk-plugin-version: 1.0.0
+set -euo pipefail
+
+jsonl=".beads/issues.jsonl"
+if [[ ! -f "$jsonl" ]]; then
+    echo "Error: $jsonl not found" >&2
+    exit 1
+fi
+
+if ! command -v jq &>/dev/null; then
+    echo "Error: jq is required for migration" >&2
+    exit 1
+fi
+
+# Default to .tickets in current directory if not set
+TICKETS_DIR="${TICKETS_DIR:-.tickets}"
+mkdir -p "$TICKETS_DIR"
+
+# Single jq call generates all markdown with <<<FILE:id>>> delimiters
+# Then awk splits into individual files (much faster than per-line jq calls)
+# Beads dependency types map to: blocks->deps, parent-child->parent, related->links
+jq -r '
+    def by_type(t): [.dependencies[]? | select(.type == t) | .depends_on_id];
+    def to_array: if length == 0 then "[]" else "[" + (map("\(.)") | join(", ")) + "]" end;
+
+    (by_type("blocks") | to_array) as $deps |
+    (by_type("related") | to_array) as $links |
+    (by_type("parent-child") | first // null) as $parent |
+
+    "<<<FILE:\(.id)>>>\n" +
+    "---\n" +
+    "id: \(.id)\n" +
+    "status: \(.status // "open")\n" +
+    "deps: \($deps)\n" +
+    "links: \($links)\n" +
+    "created: \(.created_at // "")\n" +
+    "type: \(.issue_type // "task")\n" +
+    "priority: \(.priority // 2)\n" +
+    (if .assignee and .assignee != "" then "assignee: \(.assignee)\n" else "" end) +
+    (if .external_ref and .external_ref != "" then "external-ref: \(.external_ref)\n" else "" end) +
+    (if $parent then "parent: \($parent)\n" else "" end) +
+    "---\n" +
+    "# \(.title // "Untitled")\n\n" +
+    (if .description and .description != "" then "\(.description)\n\n" else "" end) +
+    (if .design and .design != "" then "## Design\n\n\(.design)\n\n" else "" end) +
+    (if .acceptance_criteria and .acceptance_criteria != "" then "## Acceptance Criteria\n\n\(.acceptance_criteria)\n\n" else "" end) +
+    (if .notes and .notes != "" then "## Notes\n\n\(.notes)\n\n" else "" end)
+' "$jsonl" | awk -v dir="$TICKETS_DIR" '
+    /^<<<FILE:.*>>>$/ {
+        if (file) close(file)
+        id = substr($0, 9, length($0) - 11)
+        file = dir "/" id ".md"
+        count++
+        print "Migrated: " id
+        next
+    }
+    file { print > file }
+    END { if (file) close(file); print "Migrated " count " tickets from beads" }
+'

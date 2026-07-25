@@ -1,0 +1,11 @@
+# Plugins included in ticket-extras meta-package
+# Add plugins here as they are extracted from core
+# One plugin name per line (without ticket- prefix)
+#
+# Example:
+# query
+# migrate-beads
+edit
+ls
+query
+migrate-beads

@@ -1,0 +1,16 @@
+# Maintainer: wedow <wedow@users.noreply.github.com>
+# Meta-package that depends on all official ticket plugins
+pkgname=ticket-extras
+pkgver=0.3.2
+pkgrel=1
+pkgdesc="All official plugins for ticket"
+arch=('any')
+url="https://github.com/wedow/ticket"
+license=('MIT')
+# Dependencies are dynamically updated by CI based on plugins/ directory
+depends=()
+
+package() {
+    # Meta-package - no files to install
+    :
+}
